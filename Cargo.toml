@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = ["crates/pretrust-core", "crates/pretrust-cli"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Ali Efe Çakıcı <efe@aecapi.com>"]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/aliefe04/pretrust"
+homepage = "https://github.com/aliefe04/pretrust"
+
+[workspace.dependencies]
+gix-config = { version = "0.60", features = ["sha1"] }
+jsonc-parser = "0.33"
+toml = "0.8"
+clap = { version = "4.5", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+ignore = "0.4"
+anstream = "0.6"
+anstyle = "1.0"
+thiserror = "2.0"
+tempfile = "3.16"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+
+[profile.dist]
+inherits = "release"

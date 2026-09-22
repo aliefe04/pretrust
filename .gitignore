@@ -1,0 +1,8 @@
+target/
+**/*.rs.bk
+*.swp
+*.bak
+.DS_Store
+.env
+.env.*
+pretrust-empty-hooks/

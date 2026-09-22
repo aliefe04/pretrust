@@ -1,0 +1,19 @@
+[workspace]
+members = ["cargo:pretrust-cli"]
+
+# Config for 'cargo dist'
+[dist]
+cargo-dist-version = "0.28.0"
+ci = "github"
+installers = ["shell", "powershell"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+]
+include = ["README.md", "LICENSE-MIT", "LICENSE-APACHE"]
+
+[dist.github]
+create-release = true
