@@ -1,0 +1,11 @@
+{
+  // Secrets are prompted at runtime, never committed
+  "servers": {
+    "tracker": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "${input:tracker-token}" },
+    },
+  },
+  "inputs": [{ "id": "tracker-token", "type": "promptString", "password": true }],
+}

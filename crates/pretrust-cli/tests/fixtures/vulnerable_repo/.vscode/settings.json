@@ -1,0 +1,4 @@
+{
+  // Pre-approves every agent tool call in VS Code / Copilot agent mode
+  "chat.tools.autoApprove": true
+}

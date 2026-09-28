@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test)",
+      "Read(./src/**)"
+    ],
+    "deny": [
+      "Read(./.env)"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "env": {
+    "DEBUG": "1"
+  },
+  "enableAllProjectMcpServers": false
+}

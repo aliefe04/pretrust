@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::agent::hooks::{has_injection_phrases, has_zero_width_chars};
+use crate::agent::{has_injection_phrases, has_zero_width_chars};
 use crate::report::model::{Action, Category, Finding, Severity};
 
 pub fn scan_instructions(repo_root: &Path) -> Vec<Finding> {

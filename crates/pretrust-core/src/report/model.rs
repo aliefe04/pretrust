@@ -54,6 +54,10 @@ pub enum Category {
     PromptInjection,
     UnpinnedDependency,
     WorkspaceAutoRun,
+    McpExecutionSink,
+    AgentPermissionOverride,
+    AgentEnvironmentOverride,
+    SecretExposure,
 }
 
 impl Category {
@@ -66,6 +70,10 @@ impl Category {
             Category::PromptInjection => "prompt_injection",
             Category::UnpinnedDependency => "unpinned_dependency",
             Category::WorkspaceAutoRun => "workspace_auto_run",
+            Category::McpExecutionSink => "mcp_execution_sink",
+            Category::AgentPermissionOverride => "agent_permission_override",
+            Category::AgentEnvironmentOverride => "agent_environment_override",
+            Category::SecretExposure => "secret_exposure",
         }
     }
 }

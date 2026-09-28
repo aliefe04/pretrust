@@ -1,0 +1,5 @@
+{
+  "editor.formatOnSave": true,
+  "chat.tools.autoApprove": false,
+  "task.allowAutomaticTasks": "off"
+}

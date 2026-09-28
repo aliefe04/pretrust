@@ -13,6 +13,7 @@ fn main() {
         Commands::Run(args) => commands::run::execute_run(args),
         Commands::Hook(args) => commands::hook::execute_hook(args),
         Commands::Lock(args) => commands::lock::execute_lock(args),
+        Commands::Rules(args) => commands::rules::execute_rules(args),
     };
 
     std::process::exit(exit_code);

@@ -108,34 +108,8 @@ pub fn compute_file_sha256(path: &Path) -> Option<String> {
 pub fn collect_lockable_files(repo_root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
 
-    let root_candidates = [
-        "AGENTS.md",
-        "CLAUDE.md",
-        ".cursorrules",
-        ".copilot-instructions.md",
-        ".mcp.json",
-    ];
-
-    for name in &root_candidates {
-        let p = repo_root.join(name);
-        if p.is_file() {
-            files.push(p);
-        }
-    }
-
-    let sub_candidates = [
-        (".claude", "settings.json"),
-        (".claude", "settings.local.json"),
-        (".cursor", "hooks.json"),
-        (".cursor", "mcp.json"),
-        (".vscode", "tasks.json"),
-        (".cargo", "config.toml"),
-        (".cargo", "config"),
-        (".github", "copilot-instructions.md"),
-    ];
-
-    for (dir, file) in &sub_candidates {
-        let p = repo_root.join(dir).join(file);
+    for rel in crate::agent::AGENT_CONFIG_RELATIVE_PATHS {
+        let p = repo_root.join(rel);
         if p.is_file() {
             files.push(p);
         }

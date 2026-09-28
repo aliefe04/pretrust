@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem@2026.1.14",
+        "."
+      ],
+      "env": {
+        "DEBUG": "1",
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "docs": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}

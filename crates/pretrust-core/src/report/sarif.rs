@@ -39,6 +39,8 @@ pub struct SarifRule {
     #[serde(rename = "defaultConfiguration")]
     pub default_configuration: SarifRuleConfiguration,
     pub help: SarifMessage,
+    #[serde(rename = "helpUri", skip_serializing_if = "Option::is_none")]
+    pub help_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,18 +102,30 @@ pub fn generate_sarif(findings: &[Finding]) -> SarifReport {
     for f in findings {
         let level = severity_to_sarif_level(f.severity).to_string();
 
-        rules_map.entry(f.rule_name.clone()).or_insert_with(|| SarifRule {
-            id: f.rule_name.clone(),
-            name: f.rule_name.clone(),
-            short_description: SarifMessage {
-                text: format!("Pretrust rule {}", f.rule_name),
-            },
-            default_configuration: SarifRuleConfiguration {
-                level: level.clone(),
-            },
-            help: SarifMessage {
-                text: f.remediation.clone(),
-            },
+        rules_map.entry(f.rule_name.clone()).or_insert_with(|| {
+            let rule_meta = crate::report::rules::get_rule(&f.id)
+                .or_else(|| crate::report::rules::get_rule(&f.rule_name));
+            let title = rule_meta.map(|r| r.title.to_string()).unwrap_or_else(|| format!("Pretrust rule {}", f.rule_name));
+            let help_uri = rule_meta.and_then(|r| r.references.first().map(|s| s.to_string()));
+            let help_text = if let Some(meta) = rule_meta {
+                format!("{}\n\nRemediation: {}", meta.description, f.remediation)
+            } else {
+                f.remediation.clone()
+            };
+            SarifRule {
+                id: f.rule_name.clone(),
+                name: f.rule_name.clone(),
+                short_description: SarifMessage {
+                    text: title,
+                },
+                default_configuration: SarifRuleConfiguration {
+                    level: level.clone(),
+                },
+                help: SarifMessage {
+                    text: help_text,
+                },
+                help_uri,
+            }
         });
 
         let region = f.line.map(|line| SarifRegion { start_line: line });

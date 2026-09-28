@@ -28,6 +28,16 @@ pub enum Commands {
 
     /// Generate or verify pretrust.lock fingerprint of agent instructions & hooks
     Lock(LockArgs),
+
+    /// List detection rules catalog
+    Rules(RulesArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct RulesArgs {
+    /// Output machine-readable JSON format
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

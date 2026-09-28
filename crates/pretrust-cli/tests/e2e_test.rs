@@ -269,3 +269,66 @@ fn test_6_unneutralizable_sink_refusal() {
     let stdout = String::from_utf8_lossy(&allow_out.stdout);
     assert!(stdout.contains("git version"));
 }
+
+fn scan_json(bin: &Path, target: &Path) -> (Option<i32>, serde_json::Value) {
+    let output = Command::new(bin)
+        .args(["scan", target.to_str().unwrap(), "--json"])
+        .output()
+        .expect("failed to run scan");
+    let report = serde_json::from_slice(&output.stdout).expect("valid json output");
+    (output.status.code(), report)
+}
+
+fn finding_ids(report: &serde_json::Value) -> Vec<String> {
+    report["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .map(|f| f["id"].as_str().expect("finding id").to_string())
+        .collect()
+}
+
+#[test]
+fn test_7_agent_config_rules_are_catalogued() {
+    let bin = get_pretrust_bin();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    ensure_fixture_git_configs(root);
+    let fixtures = root.join("tests").join("fixtures");
+
+    let rules_out = Command::new(&bin)
+        .args(["rules", "--json"])
+        .output()
+        .expect("failed to run rules");
+    assert_eq!(rules_out.status.code(), Some(0));
+    let catalog: serde_json::Value = serde_json::from_slice(&rules_out.stdout).expect("valid catalog json");
+    let catalog_ids: Vec<&str> = catalog["rules"]
+        .as_array()
+        .expect("rules array")
+        .iter()
+        .map(|r| r["id"].as_str().expect("rule id"))
+        .collect();
+    let unique: std::collections::HashSet<&str> = catalog_ids.iter().copied().collect();
+    assert_eq!(unique.len(), catalog_ids.len(), "duplicate rule IDs in catalog");
+
+    let (code, report) = scan_json(&bin, &fixtures.join("vulnerable_repo"));
+    assert_eq!(code, Some(1));
+    let ids = finding_ids(&report);
+    for required in ["PT-MCP-003", "PT-MCP-004", "PT-MCP-005", "PT-CLAUDE-001", "PT-CLAUDE-003", "PT-VSCODE-001"] {
+        assert!(ids.iter().any(|id| id == required), "vulnerable_repo missing {required}");
+    }
+    for id in &ids {
+        assert!(unique.contains(id.as_str()), "emitted rule {id} is not in the catalog");
+    }
+
+    // The committed fake secret must never appear in full in the report.
+    assert!(!serde_json::to_string(&report).unwrap().contains("FAKE_TEST_SECRET_0123456789abcdef"));
+}
+
+#[test]
+fn test_8_clean_look_alike_configs_have_no_findings() {
+    let bin = get_pretrust_bin();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (code, report) = scan_json(&bin, &root.join("tests").join("fixtures").join("clean_repo"));
+    assert_eq!(finding_ids(&report), Vec::<String>::new());
+    assert_eq!(code, Some(0));
+}

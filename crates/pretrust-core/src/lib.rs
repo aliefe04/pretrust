@@ -9,6 +9,7 @@ use std::path::Path;
 pub use report::model::{Action, Category, Finding, Severity};
 pub use report::json::{JsonReport, ReportSummary};
 pub use report::sarif::{generate_sarif, to_sarif_string, SarifReport};
+pub use report::rules::{all_rules, get_rule, RuleInfo, RulesCatalog, RULES};
 pub use git::harden::{build_hardened_env, HardenedEnvironment};
 pub use lock::{generate_lockfile, read_lockfile, verify_lockfile, write_lockfile, LockVerification};
 
