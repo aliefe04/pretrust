@@ -50,7 +50,7 @@ pub fn build_hardened_env(repo_root: &Path) -> HardenedEnvironment {
     let defined_drivers = extract_defined_drivers(repo_root);
     let mut dynamic_keys: Vec<String> = Vec::new();
     for driver in &defined_drivers {
-        if driver.name == "lfs" {
+        if driver.name.eq_ignore_ascii_case("lfs") {
             continue;
         }
         dynamic_keys.push(driver.key.clone());

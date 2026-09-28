@@ -123,7 +123,7 @@ pub fn extract_defined_drivers(repo_root: &Path) -> Vec<DefinedDriver> {
                 let inside = &line[1..line.len() - 1].trim();
                 if let Some((sec, sub)) = inside.split_once(' ') {
                     current_section = sec.trim().to_ascii_lowercase();
-                    current_subsection = Some(sub.trim().trim_matches('"').to_ascii_lowercase());
+                    current_subsection = Some(sub.trim().trim_matches('"').to_string());
                 } else {
                     current_section = inside.to_ascii_lowercase();
                     current_subsection = None;
@@ -163,7 +163,7 @@ pub fn extract_defined_drivers(repo_root: &Path) -> Vec<DefinedDriver> {
 
 fn is_allowlisted_driver(name: &str, cmd: &str) -> bool {
     let trimmed_cmd = cmd.trim();
-    if name == "lfs" {
+    if name.eq_ignore_ascii_case("lfs") {
         return trimmed_cmd.starts_with("git-lfs") || trimmed_cmd.contains("git-lfs ");
     }
     false
@@ -180,9 +180,18 @@ pub fn scan_attributes_and_drivers(repo_root: &Path) -> Vec<Finding> {
         }
 
         let is_bound = match driver.kind {
-            DriverKind::Filter => bound.filters.contains(&driver.name),
-            DriverKind::Diff => bound.diffs.contains(&driver.name),
-            DriverKind::Merge => bound.merges.contains(&driver.name),
+            DriverKind::Filter => {
+                bound.filters.contains(&driver.name)
+                    || bound.filters.contains(&driver.name.to_ascii_lowercase())
+            }
+            DriverKind::Diff => {
+                bound.diffs.contains(&driver.name)
+                    || bound.diffs.contains(&driver.name.to_ascii_lowercase())
+            }
+            DriverKind::Merge => {
+                bound.merges.contains(&driver.name)
+                    || bound.merges.contains(&driver.name.to_ascii_lowercase())
+            }
         };
 
         let rel_file = if let Ok(rel) = driver.config_file.strip_prefix(repo_root) {

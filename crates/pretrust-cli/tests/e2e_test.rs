@@ -522,3 +522,534 @@ fn test_10_malformed_json_emits_pt_cfg_001_and_refuses_run_and_hooks() {
     let claude_invalid_err = String::from_utf8_lossy(&claude_invalid_out.stderr);
     assert!(claude_invalid_err.contains("Invalid JSON payload"));
 }
+
+fn init_test_git_repo(dir: &Path) {
+    let init_status = hermetic_cmd("git")
+        .args(["init", "-b", "main"])
+        .current_dir(dir)
+        .status()
+        .expect("git init failed");
+    assert!(init_status.success());
+
+    hermetic_cmd("git")
+        .args(["config", "user.name", "Pretrust Test"])
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    hermetic_cmd("git")
+        .args(["config", "user.email", "test@pretrust.dev"])
+        .current_dir(dir)
+        .status()
+        .unwrap();
+}
+
+fn write_executable_marker_script(
+    script_path: &Path,
+    marker_path: &Path,
+    marker_text: &str,
+    passthrough_stdin: bool,
+) {
+    #[cfg(windows)]
+    {
+        let content = if passthrough_stdin {
+            format!(
+                "@echo off\r\necho {} > \"{}\"\r\nmore\r\n",
+                marker_text,
+                marker_path.display()
+            )
+        } else {
+            format!(
+                "@echo off\r\necho {} > \"{}\"\r\n",
+                marker_text,
+                marker_path.display()
+            )
+        };
+        fs::write(script_path, content).unwrap();
+    }
+    #[cfg(not(windows))]
+    {
+        let content = if passthrough_stdin {
+            format!(
+                "#!/bin/sh\necho '{}' > \"{}\"\ncat\n",
+                marker_text,
+                marker_path.display()
+            )
+        } else {
+            format!(
+                "#!/bin/sh\necho '{}' > \"{}\"\n",
+                marker_text,
+                marker_path.display()
+            )
+        };
+        fs::write(script_path, content).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(script_path, perms).unwrap();
+        }
+    }
+}
+
+fn write_textconv_marker_script(script_path: &Path, marker_path: &Path, marker_text: &str) {
+    #[cfg(windows)]
+    {
+        let content = format!(
+            "@echo off\r\necho {} > \"{}\"\r\ntype \"%~1\"\r\n",
+            marker_text,
+            marker_path.display()
+        );
+        fs::write(script_path, content).unwrap();
+    }
+    #[cfg(not(windows))]
+    {
+        let content = format!(
+            "#!/bin/sh\necho '{}' > \"{}\"\ncat \"$1\"\n",
+            marker_text,
+            marker_path.display()
+        );
+        fs::write(script_path, content).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(script_path, perms).unwrap();
+        }
+    }
+}
+
+#[test]
+fn test_11_core_hookspath_pre_commit_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let marker_file = dir.path().join("hook_marker.txt");
+    let hooks_dir = dir.path().join("custom_hooks");
+    fs::create_dir_all(&hooks_dir).unwrap();
+
+    #[cfg(windows)]
+    let script_file = hooks_dir.join("pre-commit.bat");
+    #[cfg(not(windows))]
+    let script_file = hooks_dir.join("pre-commit");
+
+    write_executable_marker_script(&script_file, &marker_file, "HOOK_FIRED", false);
+
+    let hooks_dir_str = hooks_dir.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "core.hooksPath", &hooks_dir_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config core.hooksPath failed");
+    assert!(config_status.success());
+
+    // 1. Negative control: raw git commit executes hook and writes marker
+    let unhardened_output = hermetic_cmd("git")
+        .args(["commit", "--allow-empty", "-m", "unhardened commit"])
+        .current_dir(dir.path())
+        .output()
+        .expect("unhardened git commit failed");
+    assert!(unhardened_output.status.success());
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git commit did not trigger core.hooksPath pre-commit hook"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("HOOK_FIRED"));
+
+    // 2. Reset marker
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+
+    // 3. Positive proof: pretrust run executes commit with neutralized hooksPath
+    let hardened_output = hermetic_cmd(&bin)
+        .args([
+            "run",
+            "--",
+            "git",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "hardened commit",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git commit failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile pre-commit hook executed inside 'pretrust run'!"
+    );
+}
+
+#[test]
+fn test_12_diff_external_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let tracked = dir.path().join("file.txt");
+    fs::write(&tracked, "version 1\n").unwrap();
+    hermetic_cmd("git")
+        .args(["add", "file.txt"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    hermetic_cmd("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    fs::write(&tracked, "version 2\n").unwrap();
+
+    let marker_file = dir.path().join("diff_marker.txt");
+    #[cfg(windows)]
+    let script_file = dir.path().join("diff_external.bat");
+    #[cfg(not(windows))]
+    let script_file = dir.path().join("diff_external.sh");
+
+    write_executable_marker_script(&script_file, &marker_file, "DIFF_EXTERNAL_FIRED", false);
+
+    let script_str = script_file.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "diff.external", &script_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config diff.external failed");
+    assert!(config_status.success());
+
+    // 1. Negative control: raw git diff triggers diff.external
+    let unhardened_output = hermetic_cmd("git")
+        .arg("diff")
+        .current_dir(dir.path())
+        .output()
+        .expect("unhardened git diff failed");
+    assert!(unhardened_output.status.success());
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git diff did not trigger diff.external script"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("DIFF_EXTERNAL_FIRED"));
+
+    // 2. Reset marker
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+
+    // 3. Positive proof: pretrust run executes git diff without invoking external diff
+    let hardened_output = hermetic_cmd(&bin)
+        .args(["run", "--", "git", "diff"])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git diff failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile diff.external script executed inside 'pretrust run'!"
+    );
+}
+
+#[test]
+fn test_13_diff_driver_textconv_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let marker_file = dir.path().join("textconv_marker.txt");
+    #[cfg(windows)]
+    let script_file = dir.path().join("custom_textconv.bat");
+    #[cfg(not(windows))]
+    let script_file = dir.path().join("custom_textconv.sh");
+
+    write_textconv_marker_script(&script_file, &marker_file, "TEXTCONV_FIRED");
+
+    let script_str = script_file.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "diff.custom_driver.textconv", &script_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config diff.custom_driver.textconv failed");
+    assert!(config_status.success());
+
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "*.bin diff=custom_driver\n",
+    )
+    .unwrap();
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&bin_file, "binary payload 1\n").unwrap();
+    hermetic_cmd("git")
+        .args(["add", ".gitattributes", "data.bin"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    hermetic_cmd("git")
+        .args(["commit", "-m", "init binary data"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+
+    fs::write(&bin_file, "binary payload 2\n").unwrap();
+
+    // 1. Negative control: raw git diff executes textconv driver
+    let unhardened_output = hermetic_cmd("git")
+        .arg("diff")
+        .current_dir(dir.path())
+        .output()
+        .expect("unhardened git diff failed");
+    assert!(unhardened_output.status.success());
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git diff did not trigger diff driver textconv"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("TEXTCONV_FIRED"));
+
+    // 2. Reset marker
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+
+    // 3. Positive proof: pretrust run executes git diff without invoking textconv driver
+    let hardened_output = hermetic_cmd(&bin)
+        .args(["run", "--", "git", "diff"])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git diff failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile diff driver textconv executed inside 'pretrust run'!"
+    );
+}
+
+#[test]
+fn test_14_filter_clean_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let marker_file = dir.path().join("clean_marker.txt");
+    #[cfg(windows)]
+    let script_file = dir.path().join("clean_filter.bat");
+    #[cfg(not(windows))]
+    let script_file = dir.path().join("clean_filter.sh");
+
+    write_executable_marker_script(&script_file, &marker_file, "FILTER_CLEAN_FIRED", true);
+
+    let script_str = script_file.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "filter.custom_filter.clean", &script_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config filter.custom_filter.clean failed");
+    assert!(config_status.success());
+
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "*.txt filter=custom_filter\n",
+    )
+    .unwrap();
+    let txt_file = dir.path().join("file.txt");
+    fs::write(&txt_file, "content to clean\n").unwrap();
+
+    // 1. Negative control: raw git add triggers filter clean
+    let unhardened_output = hermetic_cmd("git")
+        .args(["add", "file.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("unhardened git add failed");
+    assert!(unhardened_output.status.success());
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git add did not trigger filter clean script"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("FILTER_CLEAN_FIRED"));
+
+    // 2. Reset marker and reset staged file
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+    hermetic_cmd("git")
+        .args(["reset"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    fs::write(&txt_file, "content to clean 2\n").unwrap();
+
+    // 3. Positive proof: pretrust run executes git add with neutralized filter
+    let hardened_output = hermetic_cmd(&bin)
+        .args(["run", "--", "git", "add", "file.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git add failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile filter clean script executed inside 'pretrust run'!"
+    );
+}
+
+#[test]
+fn test_15_filter_smudge_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let marker_file = dir.path().join("smudge_marker.txt");
+    #[cfg(windows)]
+    let script_file = dir.path().join("smudge_filter.bat");
+    #[cfg(not(windows))]
+    let script_file = dir.path().join("smudge_filter.sh");
+
+    write_executable_marker_script(&script_file, &marker_file, "FILTER_SMUDGE_FIRED", true);
+
+    let script_str = script_file.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "filter.custom_filter.smudge", &script_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config filter.custom_filter.smudge failed");
+    assert!(config_status.success());
+
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "*.txt filter=custom_filter\n",
+    )
+    .unwrap();
+    let txt_file = dir.path().join("file.txt");
+    fs::write(&txt_file, "content to smudge\n").unwrap();
+    hermetic_cmd("git")
+        .args(["add", ".gitattributes", "file.txt"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+    hermetic_cmd("git")
+        .args(["commit", "-m", "init smudge file"])
+        .current_dir(dir.path())
+        .status()
+        .unwrap();
+
+    // Remove working copy to force checkout to smudge
+    fs::remove_file(&txt_file).unwrap();
+
+    // 1. Negative control: raw git checkout triggers filter smudge
+    let unhardened_output = hermetic_cmd("git")
+        .args(["checkout", "--", "file.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("unhardened git checkout failed");
+    assert!(unhardened_output.status.success());
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git checkout did not trigger filter smudge script"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("FILTER_SMUDGE_FIRED"));
+
+    // 2. Reset marker and remove file again
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+    fs::remove_file(&txt_file).unwrap();
+
+    // 3. Positive proof: pretrust run executes git checkout with neutralized filter
+    let hardened_output = hermetic_cmd(&bin)
+        .args(["run", "--", "git", "checkout", "--", "file.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git checkout failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(txt_file.is_file());
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile filter smudge script executed inside 'pretrust run'!"
+    );
+}
+
+#[test]
+fn test_16_filter_process_isolation_proof() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    init_test_git_repo(dir.path());
+
+    let marker_file = dir.path().join("process_marker.txt");
+    #[cfg(windows)]
+    let script_file = dir.path().join("process_filter.bat");
+    #[cfg(not(windows))]
+    let script_file = dir.path().join("process_filter.sh");
+
+    write_executable_marker_script(&script_file, &marker_file, "FILTER_PROCESS_FIRED", false);
+
+    let script_str = script_file.to_str().unwrap().replace('\\', "/");
+    let config_status = hermetic_cmd("git")
+        .args(["config", "filter.custom_proc.process", &script_str])
+        .current_dir(dir.path())
+        .status()
+        .expect("git config filter.custom_proc.process failed");
+    assert!(config_status.success());
+
+    fs::write(
+        dir.path().join(".gitattributes"),
+        "*.txt filter=custom_proc\n",
+    )
+    .unwrap();
+    let txt_file = dir.path().join("file.txt");
+    fs::write(&txt_file, "content for process\n").unwrap();
+
+    // 1. Negative control: raw git add executes process filter script
+    let _ = hermetic_cmd("git")
+        .args(["add", "file.txt"])
+        .current_dir(dir.path())
+        .output();
+    assert!(
+        marker_file.is_file(),
+        "NEGATIVE CONTROL FAILED: Unhardened git add did not trigger filter process script"
+    );
+    let marker_content = fs::read_to_string(&marker_file).unwrap();
+    assert!(marker_content.contains("FILTER_PROCESS_FIRED"));
+
+    // 2. Reset marker and reset repo state
+    fs::remove_file(&marker_file).unwrap();
+    assert!(!marker_file.exists());
+    let _ = hermetic_cmd("git")
+        .args(["reset"])
+        .current_dir(dir.path())
+        .status();
+
+    // 3. Positive proof: pretrust run executes git add with neutralized filter process
+    let hardened_output = hermetic_cmd(&bin)
+        .args(["run", "--", "git", "add", "file.txt"])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run git add failed");
+    assert!(
+        hardened_output.status.success(),
+        "pretrust run failed: stderr={}",
+        String::from_utf8_lossy(&hardened_output.stderr)
+    );
+    assert!(
+        !marker_file.exists(),
+        "SECURITY VIOLATION: Hostile filter process script executed inside 'pretrust run'!"
+    );
+}
