@@ -36,11 +36,6 @@ ensure_rust() {
 }
 
 build_cli() {
-  # If PRETRUST_BIN is explicitly provided and executable, reuse it
-  if [ -n "${PRETRUST_BIN:-}" ] && [ -x "$PRETRUST_BIN" ]; then
-    echo "Pretrust: Using pre-configured binary at $PRETRUST_BIN"
-    return 0
-  fi
 
   ensure_rust
 
@@ -81,7 +76,7 @@ main() {
   local sarif_file="$sarif_dir/results.sarif"
   local scan_err_file="$sarif_dir/scan.err"
 
-  echo "Pretrust: Scanning target '$scan_target' (fail-on: $fail_on)..."
+  echo "Pretrust: Scanning workspace (fail-on: $fail_on)..."
 
   local scan_exit_code=0
   set +e
@@ -89,15 +84,10 @@ main() {
   scan_exit_code=$?
   set -e
 
-  if [ -s "$scan_err_file" ]; then
-    cat "$scan_err_file" >&2
-  fi
-
   # Handle exit status and SARIF validity
-  if [ "$scan_exit_code" -eq 2 ] || [ "$scan_exit_code" -gt 2 ]; then
-    echo "::error::Pretrust scan failed with invocation/execution error (exit code $scan_exit_code)." >&2
-    # Do not leave empty or invalid SARIF file behind
-    rm -f "$sarif_file"
+  if [ "$scan_exit_code" -ge 2 ]; then
+    echo "::error::Pretrust scan failed with invocation or execution error (category: scanner runtime failure, exit code $scan_exit_code)." >&2
+    rm -f "$sarif_file" "$scan_err_file"
     if [ -n "${GITHUB_OUTPUT:-}" ]; then
       echo "sarif-file=" >> "$GITHUB_OUTPUT"
       echo "scan-exit-code=$scan_exit_code" >> "$GITHUB_OUTPUT"
@@ -107,7 +97,8 @@ main() {
 
   # Check that SARIF file was generated and non-empty
   if [ ! -s "$sarif_file" ]; then
-    echo "::error::Pretrust scan exited with $scan_exit_code but generated an empty SARIF report." >&2
+    echo "::error::Pretrust scan exited with $scan_exit_code but generated an empty SARIF report (category: empty output)." >&2
+    rm -f "$scan_err_file"
     rm -f "$sarif_file"
     if [ -n "${GITHUB_OUTPUT:-}" ]; then
       echo "sarif-file=" >> "$GITHUB_OUTPUT"
@@ -115,6 +106,7 @@ main() {
     fi
     exit 2
   fi
+  rm -f "$scan_err_file"
 
   echo "Pretrust: SARIF report generated at $sarif_file"
   if [ -n "${GITHUB_OUTPUT:-}" ]; then
@@ -125,7 +117,7 @@ main() {
   if [ "$scan_exit_code" -eq 1 ]; then
     echo "Pretrust: Security findings met or exceeded threshold '$fail_on'." >&2
   else
-    echo "Pretrust: Scan clean. No findings at or above threshold '$fail_on'."
+    echo "Pretrust: Scan complete. No findings above threshold '$fail_on'."
   fi
 
   exit "$scan_exit_code"

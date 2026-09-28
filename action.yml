@@ -1,6 +1,5 @@
 name: 'Pretrust Security Scan'
 description: 'Pre-trust execution guard and vulnerability scanner for AI coding agents'
-author: 'Ali Efe Çakıcı <efe@aecapi.com>'
 branding:
   icon: 'shield'
   color: 'blue'
@@ -28,7 +27,7 @@ outputs:
     description: 'Path to the generated SARIF report file'
     value: ${{ steps.scan.outputs.sarif-file }}
   scan-exit-code:
-    description: 'Scanner exit code (0 = clean, 1 = threshold findings, 2 = invocation/execution error)'
+    description: 'Scanner exit code (0 = no findings above threshold, 1 = threshold findings, 2 = invocation/execution error)'
     value: ${{ steps.scan.outputs.scan-exit-code }}
 
 runs:
@@ -62,6 +61,7 @@ runs:
         SARIF_FILE: ${{ steps.scan.outputs.sarif-file }}
         SCAN_EXIT_CODE: ${{ steps.scan.outputs.scan-exit-code }}
         FAIL_ON: ${{ inputs.fail-on }}
+        GH_TOKEN: ${{ inputs.token }}
         GITHUB_TOKEN: ${{ inputs.token }}
         GITHUB_ACTION_PATH: ${{ github.action_path }}
       run: bash "$GITHUB_ACTION_PATH/scripts/pretrust-comment.sh"
@@ -105,9 +105,9 @@ runs:
           exit 1
         fi
 
-        # 5. Clean success
+        # 5. Success without findings exceeding threshold
         if [ "$SCAN_EXIT_CODE" = "0" ]; then
-          echo "Pretrust scan completed clean. No findings meeting or exceeding threshold '${FAIL_ON}'."
+          echo "Pretrust scan completed. No findings meeting or exceeding threshold '${FAIL_ON}'."
           exit 0
         fi
 

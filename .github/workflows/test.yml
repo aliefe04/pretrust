@@ -33,7 +33,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Validate Action scripts
-        run: bash -n scripts/pretrust-action.sh scripts/pretrust-comment.sh
+        run: |
+          bash -n scripts/pretrust-action.sh scripts/pretrust-comment.sh scripts/test-comment-selection.sh
+          bash scripts/test-comment-selection.sh
 
   msrv:
     name: MSRV (1.88)

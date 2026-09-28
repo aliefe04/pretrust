@@ -106,7 +106,7 @@ jobs:
           persist-credentials: false
 
       - name: Run Pretrust Security Scan
-        uses: aliefe04/pretrust@v1   # Pin to a trusted full commit SHA or release tag
+        uses: aliefe04/pretrust@main # Pin to a full 40-character commit SHA in production
         with:
           path: '.'                  # Workspace directory to scan (default: '.')
           fail-on: 'high'            # info | low | medium | high | critical (default: 'high')
@@ -114,9 +114,14 @@ jobs:
 ```
 
 #### Action Notes & Permissions
-- **Trusted Source**: The action builds the CLI binary strictly from its pinned action repository (`GITHUB_ACTION_PATH`), never executing or building cargo from the untrusted scanned checkout.
+- **Production Pinning**: In production workflows, pin the action to a full 40-character commit SHA (e.g. `uses: aliefe04/pretrust@<commit-sha>`) rather than a mutable branch or tag. This protects against supply chain drift and tag tampering. Use `@main` only for evaluation or tracking active development.
+- **Runtime Environment**: The composite Action requires a GitHub-hosted `ubuntu-latest` (Ubuntu Linux) runner with `bash` and the GitHub CLI (`gh`).
+- **Trusted Source**: The action builds the CLI binary strictly from its pinned action repository (`GITHUB_ACTION_PATH`), never executing or building cargo from the untrusted scanned checkout. Overriding the binary via environment is disabled to maintain trust boundaries.
 - **Code Scanning Permissions**: SARIF upload requires `security-events: write`. Private repositories require GitHub Advanced Security or GitHub Team/Enterprise Code Security enabled.
-- **Fork Pull Requests**: On public fork pull requests, `GITHUB_TOKEN` is read-only by default. SARIF upload and PR comments require write permissions and will report an explicit permission error if unavailable.
+- **Fork Pull Requests**: On public fork pull requests, `GITHUB_TOKEN` is read-only by default. SARIF upload and PR comments require write permissions (`security-events: write` and `pull-requests: write`). If PR comments are enabled on a fork without write permission, the action will report a clear permission error and fail closed.
+- **Reject `pull_request_target`**: Do not invoke this action from a `pull_request_target` workflow. The action explicitly rejects `pull_request_target` events because running scans or posting comments under `pull_request_target` risks evaluating untrusted code while operating with elevated repository write permissions and access to secrets. Always trigger scans using standard `pull_request` events.
+- **Credential Protection**: Always set `persist-credentials: false` in `actions/checkout`. GitHub tokens are accessed exclusively through environment variables (`GH_TOKEN`), never passed as command-line arguments or echoed in logs.
+- **Exit Status**: Exit code 0 indicates no findings meeting or exceeding the configured threshold (findings below threshold may still be recorded in SARIF), exit code 1 indicates findings meeting or exceeding threshold, and exit code 2 indicates scanner invocation or execution error.
 
 ### What it checks
 

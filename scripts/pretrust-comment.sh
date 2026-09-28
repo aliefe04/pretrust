@@ -1,6 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+find_existing_comment_id_from_file() {
+  local marker="$1"
+  local comments_file="$2"
+
+  python3 -c '
+import json, sys
+
+marker = sys.argv[1]
+comments_file = sys.argv[2]
+
+def parse_comments(path):
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+    if not content:
+        return []
+    decoder = json.JSONDecoder()
+    pos = 0
+    length = len(content)
+    comments = []
+    while pos < length:
+        while pos < length and content[pos].isspace():
+            pos += 1
+        if pos >= length:
+            break
+        doc, end = decoder.raw_decode(content, idx=pos)
+        if isinstance(doc, list):
+            comments.extend(doc)
+        elif isinstance(doc, dict):
+            comments.append(doc)
+        pos = end
+    return comments
+
+try:
+    comments = parse_comments(comments_file)
+except Exception:
+    sys.stderr.write("::error::Failed to parse comments from GitHub API response (category: JSON parse error).\n")
+    sys.exit(1)
+
+target_id = None
+for c in comments:
+    if not isinstance(c, dict):
+        continue
+    body = c.get("body") or ""
+    if marker not in body:
+        continue
+    user = c.get("user") or {}
+    login = user.get("login") or ""
+    # Restrict strictly to github-actions[bot] comments
+    if login == "github-actions[bot]":
+        target_id = c.get("id")
+        break
+
+if target_id is not None:
+    print(target_id)
+' "$marker" "$comments_file"
+}
+
+if [ "${1:-}" = "--select-comment-id" ]; then
+  find_existing_comment_id_from_file "${2:-}" "${3:-}"
+  exit $?
+fi
+
 is_agent_config_file() {
   local f="$1"
   case "$f" in
@@ -33,44 +95,23 @@ is_agent_config_file() {
 get_pr_changed_files() {
   local pr_num="$1"
   local files_tmp="$2"
-  local token="$3"
-  local repo="$4"
+  local repo="$3"
 
-  if command -v gh >/dev/null 2>&1; then
-    local err_tmp
-    err_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-gh-err.XXXXXX")"
-    if ! gh api --paginate "repos/$repo/pulls/$pr_num/files" --jq '.[].filename' > "$files_tmp" 2> "$err_tmp"; then
-      local err_content
-      err_content="$(cat "$err_tmp")"
-      rm -f "$err_tmp"
-      echo "::error::GitHub API query for PR #$pr_num files failed: $err_content" >&2
-      if echo "$err_content" | grep -iqE "forbidden|resource not accessible|permission|403|bad credentials"; then
-        echo "::error::GitHub token lacks 'pull-requests: read' permission. On pull requests from forks, the default token has read-only access." >&2
-      fi
-      return 1
+  local err_tmp
+  err_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-gh-err.XXXXXX")"
+  if ! gh api --paginate "repos/$repo/pulls/$pr_num/files" --jq '.[].filename' > "$files_tmp" 2> "$err_tmp"; then
+    local is_perm_err=0
+    if grep -iqE "forbidden|resource not accessible|permission|403|bad credentials" "$err_tmp" 2>/dev/null; then
+      is_perm_err=1
     fi
     rm -f "$err_tmp"
-  else
-    local api_url="${GITHUB_API_URL:-https://api.github.com}"
-    local http_code
-    http_code="$(curl -s -S -w "%{http_code}" \
-      -H "Authorization: Bearer $token" \
-      -H "Accept: application/vnd.github+json" \
-      -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$api_url/repos/$repo/pulls/$pr_num/files" \
-      -o "$files_tmp")"
-
-    if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-      echo "::error::GitHub API returned HTTP $http_code when querying files for PR #$pr_num." >&2
-      if [ "$http_code" -eq 403 ] || [ "$http_code" -eq 401 ]; then
-        echo "::error::GitHub token lacks required permissions (pull-requests: read) or was forbidden." >&2
-      fi
-      return 1
+    echo "::error::GitHub API query for PR #$pr_num changed files failed (category: API request error)." >&2
+    if [ "$is_perm_err" -eq 1 ]; then
+      echo "::error::GitHub token lacks 'pull-requests: read' permission. On pull requests from forks, the default token has read-only access." >&2
     fi
-    local parsed
-    parsed="$(jq -r '.[].filename // empty' "$files_tmp" 2>/dev/null || true)"
-    echo "$parsed" > "$files_tmp"
+    return 1
   fi
+  rm -f "$err_tmp"
   return 0
 }
 
@@ -79,39 +120,33 @@ find_existing_comment_id() {
   local marker="$2"
   local repo="$3"
 
-  if command -v gh >/dev/null 2>&1; then
-    local comments_tmp
-    comments_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-comments.XXXXXX")"
-    local err_tmp
-    err_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-gh-err.XXXXXX")"
+  local comments_tmp
+  comments_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-comments.XXXXXX")"
+  local err_tmp
+  err_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-gh-err.XXXXXX")"
 
-    if ! gh api --paginate "repos/$repo/issues/$pr_num/comments" > "$comments_tmp" 2> "$err_tmp"; then
-      local err_content
-      err_content="$(cat "$err_tmp")"
-      rm -f "$err_tmp" "$comments_tmp"
-      echo "::error::GitHub API query for PR #$pr_num comments failed: $err_content" >&2
-      if echo "$err_content" | grep -iqE "forbidden|resource not accessible|permission|403"; then
-        echo "::error::GitHub token lacks 'pull-requests: write' or 'issues: write' permission. Pull requests from forks cannot post comments with the default read-only token." >&2
-      fi
-      exit 1
+  if ! gh api --paginate "repos/$repo/issues/$pr_num/comments" > "$comments_tmp" 2> "$err_tmp"; then
+    local is_perm_err=0
+    if grep -iqE "forbidden|resource not accessible|permission|403|bad credentials" "$err_tmp" 2>/dev/null; then
+      is_perm_err=1
     fi
-    rm -f "$err_tmp"
-
-    local existing_id
-    existing_id="$(python3 -c '
-import json, sys
-marker = sys.argv[1]
-with open(sys.argv[2], "r", encoding="utf-8") as f:
-    comments = json.load(f)
-for c in comments:
-    if marker in c.get("body", ""):
-        print(c.get("id", ""))
-        break
-' "$marker" "$comments_tmp" 2>/dev/null || true)"
-    rm -f "$comments_tmp"
-    echo "$existing_id"
+    rm -f "$err_tmp" "$comments_tmp"
+    echo "::error::GitHub API query for PR #$pr_num comments failed (category: API request error)." >&2
+    if [ "$is_perm_err" -eq 1 ]; then
+      echo "::error::GitHub token lacks 'pull-requests: write' or 'issues: write' permission. Pull requests from forks cannot post comments with the default read-only token." >&2
+    fi
+    exit 1
   fi
-  return 0
+  rm -f "$err_tmp"
+
+  local existing_id
+  if ! existing_id="$(find_existing_comment_id_from_file "$marker" "$comments_tmp")"; then
+    rm -f "$comments_tmp"
+    echo "::error::Failed to parse comments from GitHub API response (category: JSON parse error)." >&2
+    exit 1
+  fi
+  rm -f "$comments_tmp"
+  echo "$existing_id"
 }
 
 post_or_update_comment() {
@@ -119,29 +154,34 @@ post_or_update_comment() {
   local comment_body="$2"
   local existing_id="$3"
   local repo="$4"
+  local is_fork="${5:-0}"
   local err_tmp
   err_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-gh-err.XXXXXX")"
 
   if [ -n "$existing_id" ]; then
-    echo "Pretrust: Updating existing comment ID $existing_id on PR #$pr_num..."
+    echo "Pretrust: Updating existing bot comment on PR #$pr_num..."
     if ! gh api --method PATCH "repos/$repo/issues/$pr_num/comments/$existing_id" -f body="$comment_body" >/dev/null 2> "$err_tmp"; then
-      local err_content
-      err_content="$(cat "$err_tmp")"
+      local is_perm_err=0
+      if grep -iqE "forbidden|resource not accessible|permission|403|bad credentials" "$err_tmp" 2>/dev/null; then
+        is_perm_err=1
+      fi
       rm -f "$err_tmp"
-      echo "::error::Failed to update PR comment #$existing_id: $err_content" >&2
-      if echo "$err_content" | grep -iqE "forbidden|resource not accessible|permission|403"; then
+      echo "::error::Failed to update PR comment (category: GitHub API update failure)." >&2
+      if [ "$is_fork" = "1" ] || [ "$is_perm_err" -eq 1 ]; then
         echo "::error::GitHub token lacks 'pull-requests: write' permission to update comment. Pull requests from forks cannot post comments with the default read-only token." >&2
       fi
       exit 1
     fi
   else
-    echo "Pretrust: Creating new comment on PR #$pr_num..."
+    echo "Pretrust: Creating new bot comment on PR #$pr_num..."
     if ! gh api --method POST "repos/$repo/issues/$pr_num/comments" -f body="$comment_body" >/dev/null 2> "$err_tmp"; then
-      local err_content
-      err_content="$(cat "$err_tmp")"
+      local is_perm_err=0
+      if grep -iqE "forbidden|resource not accessible|permission|403|bad credentials" "$err_tmp" 2>/dev/null; then
+        is_perm_err=1
+      fi
       rm -f "$err_tmp"
-      echo "::error::Failed to create PR comment on PR #$pr_num: $err_content" >&2
-      if echo "$err_content" | grep -iqE "forbidden|resource not accessible|permission|403"; then
+      echo "::error::Failed to create PR comment (category: GitHub API post failure)." >&2
+      if [ "$is_fork" = "1" ] || [ "$is_perm_err" -eq 1 ]; then
         echo "::error::GitHub token lacks 'pull-requests: write' permission to create comment. Pull requests from forks cannot post comments with the default read-only token." >&2
       fi
       exit 1
@@ -154,15 +194,28 @@ post_or_update_comment() {
 main() {
   local sarif_file="${SARIF_FILE:-}"
   local fail_on="${FAIL_ON:-high}"
-  local token="${GITHUB_TOKEN:-${INPUT_TOKEN:-}}"
+  local scan_exit_code="${SCAN_EXIT_CODE:-0}"
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-${INPUT_TOKEN:-}}}"
   local event_name="${GITHUB_EVENT_NAME:-}"
   local event_path="${GITHUB_EVENT_PATH:-}"
   local repo="${GITHUB_REPOSITORY:-}"
 
-  # 1. Check if running in a pull request context
-  if [ "$event_name" != "pull_request" ] && [ "$event_name" != "pull_request_target" ]; then
+  # 1. Reject pull_request_target explicitly
+  if [ "$event_name" = "pull_request_target" ]; then
+    echo "::error::Pretrust comment rejects 'pull_request_target' events. Running scans or comments under pull_request_target is unsafe because checked-out code may diverge from the PR head while executing with elevated write permissions. Use 'pull_request' instead." >&2
+    exit 2
+  fi
+
+  # Check if running in a pull request context
+  if [ "$event_name" != "pull_request" ]; then
     echo "Pretrust: Event '$event_name' is not a pull request. Skipping PR comment."
     exit 0
+  fi
+
+  # Ensure gh CLI is installed
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "::error::GitHub CLI (gh) is required on the runner for PR comments. Ubuntu runners include gh by default." >&2
+    exit 2
   fi
 
   if [ -z "$event_path" ] || [ ! -f "$event_path" ]; then
@@ -170,16 +223,26 @@ main() {
     exit 0
   fi
 
-  local pr_num
-  pr_num="$(python3 -c '
+  local pr_info
+  pr_info="$(python3 -c '
 import json, sys
 try:
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         data = json.load(f)
-    print(data.get("pull_request", {}).get("number", ""))
+    pr = data.get("pull_request", {})
+    pr_num = pr.get("number", "")
+    head_repo = pr.get("head", {}).get("repo", {}).get("full_name", "")
+    base_repo = pr.get("base", {}).get("repo", {}).get("full_name", "")
+    is_fork = "1" if (head_repo and base_repo and head_repo != base_repo) or pr.get("head", {}).get("repo", {}).get("fork", False) else "0"
+    print(f"{pr_num}\t{is_fork}")
 except Exception:
     pass
 ' "$event_path" 2>/dev/null || true)"
+
+  local pr_num
+  pr_num="$(echo "$pr_info" | cut -f1)"
+  local is_fork
+  is_fork="$(echo "$pr_info" | cut -f2)"
 
   if [ -z "$pr_num" ]; then
     echo "Pretrust: Could not identify pull request number. Skipping PR comment."
@@ -201,7 +264,7 @@ except Exception:
   # 3. Check changed files in the pull request
   local files_tmp
   files_tmp="$(mktemp "${RUNNER_TEMP:-/tmp}/pretrust-pr-files.XXXXXX")"
-  if ! get_pr_changed_files "$pr_num" "$files_tmp" "$token" "$repo"; then
+  if ! get_pr_changed_files "$pr_num" "$files_tmp" "$repo"; then
     rm -f "$files_tmp"
     exit 1
   fi
@@ -237,12 +300,13 @@ import json, sys
 sarif_path = sys.argv[1]
 fail_on = sys.argv[2]
 marker = sys.argv[3]
+scan_exit_code = sys.argv[4] if len(sys.argv) > 4 else "0"
 
 try:
     with open(sarif_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-except Exception as e:
-    sys.stderr.write(f"::error::Failed to parse SARIF file: {e}\n")
+except Exception:
+    sys.stderr.write("::error::Failed to parse SARIF file (category: JSON parse error).\n")
     sys.exit(2)
 
 runs = data.get("runs", [])
@@ -267,13 +331,25 @@ lines = [
 
 if total_count == 0:
     lines.extend([
-        "- **Status**: ✅ Clean (no pre-trust security findings detected)",
+        "- **Status**: ✅ No security findings detected",
         "- **Findings count**: 0",
         "",
         "No execution sinks, unverified lifecycle hooks, or unsafe agent settings were detected in the modified configuration files.",
     ])
+elif scan_exit_code == "0":
+    lines.extend([
+        f"- **Status**: ℹ️ No findings above threshold (`{fail_on}`)",
+        f"- **Total findings count**: {total_count} (below threshold)",
+        f"  - **Error (High / Critical)**: {error_count}",
+        f"  - **Warning (Medium)**: {warning_count}",
+        f"  - **Note (Low / Info)**: {note_count}",
+        "",
+        "- **Triggered Rule IDs**: " + (", ".join(f"`{rid}`" for rid in rule_ids) if rule_ids else "None"),
+        "",
+        "> Findings were detected below the configured failure threshold. Review finding details in the repository **GitHub Code Scanning** tab (SARIF upload).",
+    ])
 else:
-    status_label = "⚠️ Findings detected (Threshold: `" + fail_on + "`)"
+    status_label = f"⚠️ Findings meeting or exceeding threshold (`{fail_on}`)"
     lines.extend([
         f"- **Status**: {status_label}",
         f"- **Total findings count**: {total_count}",
@@ -287,14 +363,14 @@ else:
     ])
 
 print("\n".join(lines))
-' "$sarif_file" "$fail_on" "$marker")"
+' "$sarif_file" "$fail_on" "$marker" "$scan_exit_code")"
 
   # 5. Idempotent comment: find existing comment ID
   local existing_id
   existing_id="$(find_existing_comment_id "$pr_num" "$marker" "$repo")" || exit 1
 
   # 6. Post or update comment
-  post_or_update_comment "$pr_num" "$comment_body" "$existing_id" "$repo"
+  post_or_update_comment "$pr_num" "$comment_body" "$existing_id" "$repo" "$is_fork"
 }
 
 main "$@"
