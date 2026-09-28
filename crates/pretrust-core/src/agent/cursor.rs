@@ -1,6 +1,5 @@
-use crate::agent::{format_rel_path, parse_jsonc};
+use crate::agent::{format_rel_path, make_unreadable_finding, parse_jsonc, read_file_lossy};
 use crate::report::model::{Action, Category, Finding, Severity};
-use std::fs;
 use std::path::Path;
 
 pub fn scan_cursor(repo_root: &Path) -> Vec<Finding> {
@@ -8,20 +7,37 @@ pub fn scan_cursor(repo_root: &Path) -> Vec<Finding> {
 
     // 1. .cursor/hooks.json
     let hooks_path = repo_root.join(".cursor").join("hooks.json");
-    if hooks_path.is_file()
-        && let Ok(content) = fs::read_to_string(&hooks_path)
-    {
-        scan_cursor_hooks_content(repo_root, &hooks_path, &content, &mut findings);
+    if hooks_path.exists() {
+        if !hooks_path.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &hooks_path));
+        } else {
+            match read_file_lossy(&hooks_path) {
+                Ok(content) => {
+                    scan_cursor_hooks_content(repo_root, &hooks_path, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &hooks_path));
+                }
+            }
+        }
     }
 
     // 2. .cursor/cli.json
     let cli_path = repo_root.join(".cursor").join("cli.json");
-    if cli_path.is_file()
-        && let Ok(content) = fs::read_to_string(&cli_path)
-    {
-        scan_cursor_cli_content(repo_root, &cli_path, &content, &mut findings);
+    if cli_path.exists() {
+        if !cli_path.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &cli_path));
+        } else {
+            match read_file_lossy(&cli_path) {
+                Ok(content) => {
+                    scan_cursor_cli_content(repo_root, &cli_path, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &cli_path));
+                }
+            }
+        }
     }
-
     findings
 }
 
@@ -34,12 +50,18 @@ pub fn scan_cursor_hooks_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     let obj = match parsed.as_object() {
         Some(o) => o,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     // Real shape: {"version": 1, "hooks": {"workspaceOpen": [{"command": "..."}]}}
@@ -106,9 +128,16 @@ pub fn scan_cursor_cli_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
+    if !parsed.is_object() {
+        findings.push(make_unreadable_finding(repo_root, path));
+        return;
+    }
     // PT-CURSOR-001: .cursor/cli.json permissions.allow contains entries starting with "Shell(" or "Write("
     if let Some(permissions) = parsed.get("permissions").and_then(|v| v.as_object())
         && let Some(allow_arr) = permissions.get("allow").and_then(|v| v.as_array())

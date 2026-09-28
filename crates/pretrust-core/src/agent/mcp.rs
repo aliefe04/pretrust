@@ -1,8 +1,8 @@
 use crate::agent::{
-    format_rel_path, has_injection_phrases, has_zero_width_chars, parse_jsonc, redact_secret,
+    format_rel_path, has_injection_phrases, has_zero_width_chars, make_unreadable_finding,
+    parse_jsonc, read_file_lossy, redact_secret,
 };
 use crate::report::model::{Action, Category, Finding, Severity};
-use std::fs;
 use std::path::Path;
 
 pub fn scan_mcp(repo_root: &Path) -> Vec<Finding> {
@@ -26,10 +26,19 @@ pub fn scan_mcp(repo_root: &Path) -> Vec<Finding> {
 
     for (rel_path, keys) in &targets {
         let p = repo_root.join(rel_path);
-        if p.is_file()
-            && let Ok(content) = fs::read_to_string(&p)
-        {
-            scan_mcp_file_content(repo_root, &p, &content, keys, &mut findings);
+        if p.exists() {
+            if !p.is_file() {
+                findings.push(make_unreadable_finding(repo_root, &p));
+                continue;
+            }
+            match read_file_lossy(&p) {
+                Ok(content) => {
+                    scan_mcp_file_content(repo_root, &p, &content, keys, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &p));
+                }
+            }
         }
     }
 
@@ -46,8 +55,16 @@ pub fn scan_mcp_file_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
+
+    if !parsed.is_object() {
+        findings.push(make_unreadable_finding(repo_root, path));
+        return;
+    }
 
     let is_gemini = rel_file.ends_with(".gemini/settings.json");
 

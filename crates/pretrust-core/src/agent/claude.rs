@@ -1,16 +1,24 @@
-use crate::agent::{format_rel_path, parse_jsonc};
+use crate::agent::{format_rel_path, make_unreadable_finding, parse_jsonc, read_file_lossy};
 use crate::report::model::{Action, Category, Finding, Severity};
-use std::fs;
 use std::path::Path;
 
 pub fn scan_claude(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for name in &["settings.json", "settings.local.json"] {
         let path = repo_root.join(".claude").join(name);
-        if path.is_file()
-            && let Ok(content) = fs::read_to_string(&path)
-        {
-            scan_claude_settings_content(repo_root, &path, &content, &mut findings);
+        if path.exists() {
+            if !path.is_file() {
+                findings.push(make_unreadable_finding(repo_root, &path));
+            } else {
+                match read_file_lossy(&path) {
+                    Ok(content) => {
+                        scan_claude_settings_content(repo_root, &path, &content, &mut findings);
+                    }
+                    Err(_) => {
+                        findings.push(make_unreadable_finding(repo_root, &path));
+                    }
+                }
+            }
         }
     }
     findings
@@ -25,12 +33,18 @@ pub fn scan_claude_settings_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     let obj = match parsed.as_object() {
         Some(o) => o,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     // 1. PT-HOOK-001: ClaudeSettingsHook (real nested shape)

@@ -485,6 +485,16 @@ pub const RULES: &[RuleInfo] = &[
         agents: &["VS Code"],
         references: &["https://code.visualstudio.com/docs/editor/tasks"],
     },
+    RuleInfo {
+        id: "PT-CFG-001",
+        name: "AgentConfigUnreadable",
+        severity: Severity::High,
+        category: Category::ConfigurationSmuggling,
+        title: "Unreadable or malformed agent configuration",
+        description: "Agent configuration file exists but cannot be safely read or parsed, preventing security inspection.",
+        agents: &["Claude Code", "Cursor", "VS Code", "Copilot", "Gemini CLI", "Zed", "Cargo"],
+        references: &[],
+    },
 ];
 
 pub fn get_rule(id_or_name: &str) -> Option<&'static RuleInfo> {

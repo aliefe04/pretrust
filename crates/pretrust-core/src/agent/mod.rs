@@ -5,9 +5,9 @@ pub mod mcp;
 pub mod tasks;
 pub mod vscode;
 
-use crate::report::model::Finding;
+use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
 use std::path::Path;
-
 pub const AGENT_CONFIG_RELATIVE_PATHS: &[&str] = &[
     "AGENTS.md",
     "CLAUDE.md",
@@ -76,13 +76,36 @@ pub fn redact_secret(val: &str) -> String {
     }
 }
 
+pub fn read_file_lossy(path: &Path) -> Result<String, std::io::Error> {
+    let bytes = fs::read(path)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+pub fn make_unreadable_finding(repo_root: &Path, path: &Path) -> Finding {
+    let rel_file = format_rel_path(repo_root, path);
+    Finding {
+        id: "PT-CFG-001".into(),
+        rule_name: "AgentConfigUnreadable".into(),
+        severity: Severity::High,
+        category: Category::ConfigurationSmuggling,
+        message: format!("Agent configuration file cannot be safely read or parsed: '{rel_file}'"),
+        file_path: rel_file,
+        line: None,
+        key: None,
+        value: None,
+        action: Action::RequiresManualRemediation,
+        remediation: "Verify and repair the agent configuration file or remove it if untrusted.".into(),
+    }
+}
+
 pub fn parse_jsonc(content: &str) -> Option<serde_json::Value> {
+    let stripped = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     let parse_opts = jsonc_parser::ParseOptions {
         allow_comments: true,
         allow_trailing_commas: true,
         ..Default::default()
     };
-    match jsonc_parser::parse_to_value(content, &parse_opts) {
+    match jsonc_parser::parse_to_value(stripped, &parse_opts) {
         Ok(Some(v)) => Some(jsonc_to_serde(v)),
         _ => None,
     }

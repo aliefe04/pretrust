@@ -1,6 +1,5 @@
-use crate::agent::{format_rel_path, parse_jsonc};
+use crate::agent::{format_rel_path, make_unreadable_finding, parse_jsonc, read_file_lossy};
 use crate::report::model::{Action, Category, Finding, Severity};
-use std::fs;
 use std::path::Path;
 
 pub fn scan_vscode(repo_root: &Path) -> Vec<Finding> {
@@ -8,20 +7,37 @@ pub fn scan_vscode(repo_root: &Path) -> Vec<Finding> {
 
     // 1. .vscode/settings.json
     let settings_path = repo_root.join(".vscode").join("settings.json");
-    if settings_path.is_file()
-        && let Ok(content) = fs::read_to_string(&settings_path)
-    {
-        scan_vscode_settings_content(repo_root, &settings_path, &content, &mut findings);
+    if settings_path.exists() {
+        if !settings_path.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &settings_path));
+        } else {
+            match read_file_lossy(&settings_path) {
+                Ok(content) => {
+                    scan_vscode_settings_content(repo_root, &settings_path, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &settings_path));
+                }
+            }
+        }
     }
 
     // 2. .vscode/tasks.json
     let tasks_path = repo_root.join(".vscode").join("tasks.json");
-    if tasks_path.is_file()
-        && let Ok(content) = fs::read_to_string(&tasks_path)
-    {
-        scan_vscode_tasks_content(repo_root, &tasks_path, &content, &mut findings);
+    if tasks_path.exists() {
+        if !tasks_path.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &tasks_path));
+        } else {
+            match read_file_lossy(&tasks_path) {
+                Ok(content) => {
+                    scan_vscode_tasks_content(repo_root, &tasks_path, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &tasks_path));
+                }
+            }
+        }
     }
-
     findings
 }
 
@@ -34,12 +50,18 @@ pub fn scan_vscode_settings_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     let obj = match parsed.as_object() {
         Some(o) => o,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     // PT-VSCODE-001: chat.tools.autoApprove true or chat.tools.global.autoApprove true
@@ -103,12 +125,18 @@ pub fn scan_vscode_tasks_content(
     let rel_file = format_rel_path(repo_root, path);
     let parsed: serde_json::Value = match parse_jsonc(content) {
         Some(v) => v,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     let obj = match parsed.as_object() {
         Some(o) => o,
-        None => return,
+        None => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
 
     if let Some(tasks_arr) = obj.get("tasks").and_then(|v| v.as_array()) {
