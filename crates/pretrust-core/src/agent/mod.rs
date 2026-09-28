@@ -78,7 +78,10 @@ pub fn redact_secret(val: &str) -> String {
 
 pub fn read_file_lossy(path: &Path) -> Result<String, std::io::Error> {
     let bytes = fs::read(path)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    match String::from_utf8(bytes) {
+        Ok(s) => Ok(s),
+        Err(e) => Ok(String::from_utf8_lossy(e.as_bytes()).into_owned()),
+    }
 }
 
 pub fn make_unreadable_finding(repo_root: &Path, path: &Path) -> Finding {

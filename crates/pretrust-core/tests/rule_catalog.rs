@@ -839,6 +839,25 @@ static FIXTURES: &[RuleFixture] = &[
             .unwrap();
         },
     },
+    // PT-CFG-001: AgentConfigUnreadable
+    RuleFixture {
+        id: "PT-CFG-001",
+        run_scan: scan_ws,
+        setup_positive: |p| {
+            let vscode = p.join(".vscode");
+            fs::create_dir_all(&vscode).unwrap();
+            fs::write(vscode.join("tasks.json"), "{ invalid json:").unwrap();
+        },
+        setup_negative: |p| {
+            let vscode = p.join(".vscode");
+            fs::create_dir_all(&vscode).unwrap();
+            fs::write(
+                vscode.join("tasks.json"),
+                r#"{"version": "2.0.0", "tasks": []}"#,
+            )
+            .unwrap();
+        },
+    },
 ];
 
 #[test]

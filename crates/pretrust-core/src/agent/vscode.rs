@@ -180,6 +180,7 @@ pub fn scan_vscode_tasks_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]

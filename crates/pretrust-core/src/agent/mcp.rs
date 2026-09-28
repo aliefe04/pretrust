@@ -413,6 +413,7 @@ fn is_ref_interpolation(val: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]

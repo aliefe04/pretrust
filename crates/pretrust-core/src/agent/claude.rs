@@ -280,6 +280,7 @@ fn extract_commands(val: &serde_json::Value, out: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]

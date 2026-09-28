@@ -1,6 +1,5 @@
-use crate::agent::format_rel_path;
+use crate::agent::{format_rel_path, make_unreadable_finding, read_file_lossy};
 use crate::report::model::{Action, Category, Finding, Severity};
-use std::fs;
 use std::path::Path;
 
 pub fn scan_tasks(repo_root: &Path) -> Vec<Finding> {
@@ -9,14 +8,32 @@ pub fn scan_tasks(repo_root: &Path) -> Vec<Finding> {
     // .cargo/config.toml and .cargo/config
     let cargo_toml = repo_root.join(".cargo").join("config.toml");
     let cargo_bare = repo_root.join(".cargo").join("config");
-    if cargo_toml.is_file() {
-        if let Ok(content) = fs::read_to_string(&cargo_toml) {
-            scan_cargo_config_content(repo_root, &cargo_toml, &content, &mut findings);
+    if cargo_toml.exists() {
+        if !cargo_toml.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &cargo_toml));
+        } else {
+            match read_file_lossy(&cargo_toml) {
+                Ok(content) => {
+                    scan_cargo_config_content(repo_root, &cargo_toml, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &cargo_toml));
+                }
+            }
         }
-    } else if cargo_bare.is_file()
-        && let Ok(content) = fs::read_to_string(&cargo_bare)
-    {
-        scan_cargo_config_content(repo_root, &cargo_bare, &content, &mut findings);
+    } else if cargo_bare.exists() {
+        if !cargo_bare.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &cargo_bare));
+        } else {
+            match read_file_lossy(&cargo_bare) {
+                Ok(content) => {
+                    scan_cargo_config_content(repo_root, &cargo_bare, &content, &mut findings);
+                }
+                Err(_) => {
+                    findings.push(make_unreadable_finding(repo_root, &cargo_bare));
+                }
+            }
+        }
     }
 
     findings
@@ -30,9 +47,13 @@ pub fn scan_cargo_config_content(
 ) {
     let rel_file = format_rel_path(repo_root, file_path);
 
-    let parsed: toml::Table = match toml::from_str(content) {
+    let stripped = content.strip_prefix('\u{FEFF}').unwrap_or(content);
+    let parsed: toml::Table = match toml::from_str(stripped) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(_) => {
+            findings.push(make_unreadable_finding(repo_root, file_path));
+            return;
+        }
     };
 
     // 1. [build] rustc-wrapper
@@ -86,6 +107,7 @@ pub fn scan_cargo_config_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]

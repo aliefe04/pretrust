@@ -426,3 +426,99 @@ fn test_8_clean_look_alike_configs_have_no_findings() {
 fn test_fixture_missing_panics() {
     copy_fixture("nonexistent_fixture_dir_definitely_missing");
 }
+
+#[test]
+fn test_9_vscode_tasks_bom_and_lossy_utf8_detection() {
+    let bin = get_pretrust_bin();
+
+    // 1. tasks.json with UTF-8 BOM + runOn: folderOpen
+    let dir_bom = tempdir().unwrap();
+    let vscode_bom = dir_bom.path().join(".vscode");
+    fs::create_dir_all(&vscode_bom).unwrap();
+    let bom_tasks = "\u{FEFF}{\"version\":\"2.0.0\",\"tasks\":[{\"label\":\"test\",\"type\":\"shell\",\"command\":\"evil.sh\",\"runOptions\":{\"runOn\":\"folderOpen\"}}]}";
+    fs::write(vscode_bom.join("tasks.json"), bom_tasks).unwrap();
+
+    let (code_bom, report_bom) = scan_json(&bin, dir_bom.path());
+    assert_eq!(code_bom, Some(1));
+    let ids_bom = finding_ids(&report_bom);
+    assert!(ids_bom.iter().any(|id| id == "PT-VSCODE-002"));
+
+    // 2. tasks.json with invalid UTF-8 byte in a comment + runOn: folderOpen
+    let dir_lossy = tempdir().unwrap();
+    let vscode_lossy = dir_lossy.path().join(".vscode");
+    fs::create_dir_all(&vscode_lossy).unwrap();
+    let mut lossy_bytes = Vec::new();
+    lossy_bytes.extend_from_slice(b"// Comment with invalid byte \xFF\n");
+    lossy_bytes.extend_from_slice(br#"{"version":"2.0.0","tasks":[{"label":"test","type":"shell","command":"evil.sh","runOptions":{"runOn":"folderOpen"}}]}"#);
+    fs::write(vscode_lossy.join("tasks.json"), &lossy_bytes).unwrap();
+
+    let (code_lossy, report_lossy) = scan_json(&bin, dir_lossy.path());
+    assert_eq!(code_lossy, Some(1));
+    let ids_lossy = finding_ids(&report_lossy);
+    assert!(ids_lossy.iter().any(|id| id == "PT-VSCODE-002"));
+}
+
+#[test]
+fn test_10_malformed_json_emits_pt_cfg_001_and_refuses_run_and_hooks() {
+    use std::io::Write;
+    let bin = get_pretrust_bin();
+
+    let dir = tempdir().unwrap();
+    let vscode = dir.path().join(".vscode");
+    fs::create_dir_all(&vscode).unwrap();
+    fs::write(vscode.join("tasks.json"), "{ malformed json: true").unwrap();
+
+    // 1. Scan emits blocking PT-CFG-001
+    let (code, report) = scan_json(&bin, dir.path());
+    assert_eq!(code, Some(1));
+    let ids = finding_ids(&report);
+    assert!(ids.iter().any(|id| id == "PT-CFG-001"));
+
+    // 2. Run exits 2 due to blocking finding
+    let run_out = hermetic_cmd(&bin)
+        .args(["run", "--", "echo", "safe_command"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run command failed");
+    assert_eq!(run_out.status.code(), Some(2));
+    let run_stderr = String::from_utf8_lossy(&run_out.stderr);
+    assert!(run_stderr.contains("PRETRUST SAFETY REFUSAL"));
+
+    // 3. Claude hook exits 2 for obfuscated command `g""it status`
+    let mut claude_obf = hermetic_cmd(&bin)
+        .args(["hook", "--harness", "claude"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn claude hook");
+    {
+        let stdin = claude_obf.stdin.as_mut().unwrap();
+        stdin
+            .write_all(br#"{"hook_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"g\"\"it status"}}"#)
+            .unwrap();
+    }
+    let claude_obf_out = claude_obf.wait_with_output().unwrap();
+    assert_eq!(claude_obf_out.status.code(), Some(2));
+    let claude_stderr = String::from_utf8_lossy(&claude_obf_out.stderr);
+    assert!(claude_stderr.contains("Blocked execution"));
+
+    // 4. Claude hook exits 2 for invalid JSON payload on stdin
+    let mut claude_invalid = hermetic_cmd(&bin)
+        .args(["hook", "--harness", "claude"])
+        .current_dir(dir.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn claude hook");
+    {
+        let stdin = claude_invalid.stdin.as_mut().unwrap();
+        stdin.write_all(b"{\"invalid_json:").unwrap();
+    }
+    let claude_invalid_out = claude_invalid.wait_with_output().unwrap();
+    assert_eq!(claude_invalid_out.status.code(), Some(2));
+    let claude_invalid_err = String::from_utf8_lossy(&claude_invalid_out.stderr);
+    assert!(claude_invalid_err.contains("Invalid JSON payload"));
+}

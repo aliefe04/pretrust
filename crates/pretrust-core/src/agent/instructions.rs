@@ -1,4 +1,6 @@
-use crate::agent::{has_injection_phrases, has_zero_width_chars};
+use crate::agent::{
+    has_injection_phrases, has_zero_width_chars, make_unreadable_finding, read_file_lossy,
+};
 use crate::report::model::{Action, Category, Finding, Severity};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,9 +10,17 @@ pub fn scan_instructions(repo_root: &Path) -> Vec<Finding> {
     let candidates = collect_instruction_files(repo_root);
 
     for file_path in candidates {
-        let content = match fs::read_to_string(&file_path) {
+        if !file_path.is_file() {
+            findings.push(make_unreadable_finding(repo_root, &file_path));
+            continue;
+        }
+
+        let content = match read_file_lossy(&file_path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(_) => {
+                findings.push(make_unreadable_finding(repo_root, &file_path));
+                continue;
+            }
         };
 
         scan_instruction_content(repo_root, &file_path, &content, &mut findings);
@@ -31,28 +41,25 @@ pub fn collect_instruction_files(repo_root: &Path) -> Vec<PathBuf> {
 
     for name in &root_files {
         let p = repo_root.join(name);
-        if p.is_file() {
+        if p.exists() {
             files.push(p);
         }
     }
 
     let github_copilot = repo_root.join(".github").join("copilot-instructions.md");
-    if github_copilot.is_file() {
+    if github_copilot.exists() {
         files.push(github_copilot);
     }
-
     let cursor_rules_dir = repo_root.join(".cursor").join("rules");
-    if cursor_rules_dir.is_dir()
-        && let Ok(entries) = fs::read_dir(&cursor_rules_dir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                files.push(path);
+    if cursor_rules_dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&cursor_rules_dir) {
+            for entry in entries.flatten() {
+                files.push(entry.path());
             }
         }
+    } else if cursor_rules_dir.exists() {
+        files.push(cursor_rules_dir);
     }
-
     files
 }
 

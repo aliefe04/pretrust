@@ -170,6 +170,7 @@ pub fn scan_cursor_cli_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]

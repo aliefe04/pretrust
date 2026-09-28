@@ -6,12 +6,37 @@ use std::path::Path;
 
 pub fn execute_hook(args: HookArgs) -> i32 {
     let mut stdin_buffer = String::new();
-    let _ = io::stdin().read_to_string(&mut stdin_buffer);
+    if io::stdin().read_to_string(&mut stdin_buffer).is_err() {
+        if args.harness == AgentHarness::Cursor {
+            let response = serde_json::json!({
+                "permission": "deny",
+                "user_message": "Pretrust blocked execution: failed to read stdin payload"
+            });
+            println!("{response}");
+        } else {
+            anstream::eprintln!("Pretrust Hook: Failed to read stdin payload");
+        }
+        return 2;
+    }
 
-    let parsed_payload: Option<Value> = if stdin_buffer.trim().is_empty() {
+    let _parsed_payload: Option<Value> = if stdin_buffer.trim().is_empty() {
         None
     } else {
-        serde_json::from_str(&stdin_buffer).ok()
+        match serde_json::from_str(&stdin_buffer) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                if args.harness == AgentHarness::Cursor {
+                    let response = serde_json::json!({
+                        "permission": "deny",
+                        "user_message": format!("Pretrust blocked execution: invalid JSON payload on stdin: {e}")
+                    });
+                    println!("{response}");
+                } else {
+                    anstream::eprintln!("Pretrust Hook: Invalid JSON payload on stdin: {e}");
+                }
+                return 2;
+            }
+        }
     };
 
     let repo_root = Path::new(".");
@@ -30,22 +55,9 @@ pub fn execute_hook(args: HookArgs) -> i32 {
     match args.harness {
         AgentHarness::Claude => {
             // Claude Code PreToolUse hook convention
-            let mut command_to_check = None;
-            if let Some(payload) = &parsed_payload
-                && let Some(tool_input) = payload.get("tool_input")
-                && let Some(cmd) = tool_input.get("command").and_then(|v| v.as_str())
-            {
-                command_to_check = Some(cmd.to_string());
-            }
-
-            let is_git_command = command_to_check
-                .as_deref()
-                .map(|cmd| cmd.contains("git ") || cmd.starts_with("git"))
-                .unwrap_or(true);
-
-            if should_block && is_git_command {
+            if should_block {
                 anstream::eprintln!(
-                    "Pretrust Hook [Claude]: Blocked git execution due to {} detected sink(s) in repository.",
+                    "Pretrust Hook [Claude]: Blocked execution due to {} detected sink(s) in repository.",
                     findings.len()
                 );
                 for f in findings.iter().filter(|f| f.severity >= Severity::High) {
