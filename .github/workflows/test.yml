@@ -36,6 +36,19 @@ jobs:
         run: |
           bash -n scripts/pretrust-action.sh scripts/pretrust-comment.sh scripts/test-comment-selection.sh
           bash scripts/test-comment-selection.sh
+      - name: Check for token fixture literals
+        run: |
+          status=0
+          git grep -I -q -E 'ghp_[A-Za-z0-9]{36}' -- . || status=$?
+          if [ "$status" -eq 1 ]; then
+            exit 0
+          elif [ "$status" -eq 0 ]; then
+            echo "Forbidden token-shaped fixture literal detected in tracked files" >&2
+            exit 1
+          else
+            echo "git grep failed unexpectedly with exit code $status" >&2
+            exit "$status"
+          fi
 
   msrv:
     name: MSRV (1.88)
