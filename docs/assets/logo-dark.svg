@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96" role="img" aria-label="Pretrust">
+  <path d="M40 8 12 20v22c0 18 12 33 28 38 16-5 28-20 28-38V20L40 8Z" fill="none" stroke="#38bdf8" stroke-width="5" stroke-linejoin="round"/>
+  <path d="m27 46 9 9 18-20" fill="none" stroke="#4ade80" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="88" y="64" fill="#f1f5f9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="46" font-weight="700" letter-spacing="-1">pretrust</text>
+</svg>
