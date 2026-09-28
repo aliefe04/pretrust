@@ -78,6 +78,46 @@ pretrust rules
 pretrust rules --json
 ```
 
+### GitHub Action
+
+Scan repositories in CI and upload findings directly to GitHub Code Scanning via SARIF:
+
+```yaml
+name: Pretrust Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  security-events: write   # Required for SARIF upload to GitHub Code Scanning
+  pull-requests: write     # Optional: only needed if 'comment: true' is enabled
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run Pretrust Security Scan
+        uses: aliefe04/pretrust@v1   # Pin to a trusted full commit SHA or release tag
+        with:
+          path: '.'                  # Workspace directory to scan (default: '.')
+          fail-on: 'high'            # info | low | medium | high | critical (default: 'high')
+          comment: 'false'           # Optional idempotent PR comment (default: 'false')
+```
+
+#### Action Notes & Permissions
+- **Trusted Source**: The action builds the CLI binary strictly from its pinned action repository (`GITHUB_ACTION_PATH`), never executing or building cargo from the untrusted scanned checkout.
+- **Code Scanning Permissions**: SARIF upload requires `security-events: write`. Private repositories require GitHub Advanced Security or GitHub Team/Enterprise Code Security enabled.
+- **Fork Pull Requests**: On public fork pull requests, `GITHUB_TOKEN` is read-only by default. SARIF upload and PR comments require write permissions and will report an explicit permission error if unavailable.
+
 ### What it checks
 
 Git config execution sinks, VS Code tasks, Cargo hooks, agent instruction files, and the project-level MCP, hook, permission and environment settings of Claude Code, Cursor, VS Code / Copilot, Gemini CLI, Zed and Amazon Q. See [docs/RULES.md](docs/RULES.md) for every file and rule with its reference.

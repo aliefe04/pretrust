@@ -1,0 +1,115 @@
+name: 'Pretrust Security Scan'
+description: 'Pre-trust execution guard and vulnerability scanner for AI coding agents'
+author: 'Ali Efe Çakıcı <efe@aecapi.com>'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Path to repository or workspace to scan'
+    required: false
+    default: '.'
+  fail-on:
+    description: 'Minimum severity level that triggers action failure (info, low, medium, high, critical)'
+    required: false
+    default: 'high'
+  comment:
+    description: 'Post an idempotent PR summary comment when agent configuration changes are detected (requires pull-requests: write)'
+    required: false
+    default: 'false'
+  token:
+    description: 'GitHub token used for PR comment and GitHub API access'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF report file'
+    value: ${{ steps.scan.outputs.sarif-file }}
+  scan-exit-code:
+    description: 'Scanner exit code (0 = clean, 1 = threshold findings, 2 = invocation/execution error)'
+    value: ${{ steps.scan.outputs.scan-exit-code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run Pretrust scan
+      id: scan
+      shell: bash
+      continue-on-error: true
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/pretrust-action.sh"
+
+    - name: Upload SARIF to GitHub Code Scanning
+      id: upload_sarif
+      if: steps.scan.outputs.scan-exit-code == '0' || steps.scan.outputs.scan-exit-code == '1'
+      uses: github/codeql-action/upload-sarif@v4
+      continue-on-error: true
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+        category: pretrust
+
+    - name: Post PR summary comment
+      id: comment
+      if: inputs.comment == 'true' && (steps.scan.outputs.scan-exit-code == '0' || steps.scan.outputs.scan-exit-code == '1')
+      shell: bash
+      continue-on-error: true
+      env:
+        SARIF_FILE: ${{ steps.scan.outputs.sarif-file }}
+        SCAN_EXIT_CODE: ${{ steps.scan.outputs.scan-exit-code }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        GITHUB_TOKEN: ${{ inputs.token }}
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/pretrust-comment.sh"
+
+    - name: Evaluate scan and upload status
+      if: always()
+      shell: bash
+      env:
+        SCAN_EXIT_CODE: ${{ steps.scan.outputs.scan-exit-code }}
+        SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        UPLOAD_OUTCOME: ${{ steps.upload_sarif.outcome }}
+        COMMENT_OUTCOME: ${{ steps.comment.outcome }}
+        COMMENT_ENABLED: ${{ inputs.comment }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        # 1. Scanner invocation or runtime failure (code 2 or uncaught failure)
+        if [ "$SCAN_EXIT_CODE" = "2" ] || { [ "$SCAN_OUTCOME" = "failure" ] && [ "$SCAN_EXIT_CODE" != "0" ] && [ "$SCAN_EXIT_CODE" != "1" ]; }; then
+          echo "::error::Pretrust scan encountered an invocation or execution error (exit code: ${SCAN_EXIT_CODE:-2})." >&2
+          exit "${SCAN_EXIT_CODE:-2}"
+        fi
+
+        # 2. SARIF upload failure
+        if [ "$UPLOAD_OUTCOME" = "failure" ]; then
+          echo "::error::GitHub Code Scanning SARIF upload failed." >&2
+          echo "::error::Check the following requirements:" >&2
+          echo "::error::1. Workflow permissions must include 'security-events: write'." >&2
+          echo "::error::2. GitHub Code Security / Advanced Security must be enabled for this repository (required for private repositories)." >&2
+          echo "::error::3. Pull requests from public forks lack 'security-events: write' by default." >&2
+          exit 1
+        fi
+
+        # 3. PR comment failure (when opt-in comment was requested)
+        if [ "$COMMENT_ENABLED" = "true" ] && [ "$COMMENT_OUTCOME" = "failure" ]; then
+          echo "::error::Pretrust PR comment step failed. Ensure 'pull-requests: write' permission is granted." >&2
+          exit 1
+        fi
+
+        # 4. Scanner findings met or exceeded threshold
+        if [ "$SCAN_EXIT_CODE" = "1" ]; then
+          echo "::error::Pretrust scan detected security findings meeting or exceeding threshold '${FAIL_ON}'." >&2
+          exit 1
+        fi
+
+        # 5. Clean success
+        if [ "$SCAN_EXIT_CODE" = "0" ]; then
+          echo "Pretrust scan completed clean. No findings meeting or exceeding threshold '${FAIL_ON}'."
+          exit 0
+        fi
+
+        echo "::error::Unexpected scan exit code: '${SCAN_EXIT_CODE:-unknown}'." >&2
+        exit 1
