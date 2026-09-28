@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::Path;
 use crate::git::config::resolve_git_dirs;
 use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvenanceKind {
@@ -29,12 +29,15 @@ pub fn check_provenance(repo_root: &Path) -> ProvenanceReport {
                 has_remotes: false,
                 has_packfiles: false,
                 findings: Vec::new(),
-            }
+            };
         }
     };
 
     let logs_head = git_dirs.git_dir.join("logs").join("HEAD");
-    let has_reflog = logs_head.is_file() && fs::metadata(&logs_head).map(|m| m.len() > 0).unwrap_or(false);
+    let has_reflog = logs_head.is_file()
+        && fs::metadata(&logs_head)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false);
 
     let remotes_dir = git_dirs.git_dir.join("refs").join("remotes");
     let has_remotes = if remotes_dir.is_dir() {
@@ -48,9 +51,12 @@ pub fn check_provenance(repo_root: &Path) -> ProvenanceReport {
     let pack_dir = git_dirs.git_dir.join("objects").join("pack");
     let has_packfiles = if pack_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(&pack_dir) {
-            entries
-                .filter_map(|e| e.ok())
-                .any(|e| e.path().extension().map(|ext| ext == "pack").unwrap_or(false))
+            entries.filter_map(|e| e.ok()).any(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "pack")
+                    .unwrap_or(false)
+            })
         } else {
             false
         }
@@ -102,7 +108,10 @@ mod tests {
         let report = check_provenance(dir.path());
         assert_eq!(report.kind, ProvenanceKind::AssembledArchive);
         assert_eq!(report.findings.len(), 1);
-        assert_eq!(report.findings[0].rule_name, "GitProvenanceAssembledArchive");
+        assert_eq!(
+            report.findings[0].rule_name,
+            "GitProvenanceAssembledArchive"
+        );
     }
 
     #[test]
@@ -111,7 +120,11 @@ mod tests {
         let dot_git = dir.path().join(".git");
         let logs_dir = dot_git.join("logs");
         fs::create_dir_all(&logs_dir).unwrap();
-        fs::write(logs_dir.join("HEAD"), "00000000 11111111 User <user@example.com> clone\n").unwrap();
+        fs::write(
+            logs_dir.join("HEAD"),
+            "00000000 11111111 User <user@example.com> clone\n",
+        )
+        .unwrap();
 
         let remotes_dir = dot_git.join("refs").join("remotes").join("origin");
         fs::create_dir_all(&remotes_dir).unwrap();

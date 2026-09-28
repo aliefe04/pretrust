@@ -1,5 +1,5 @@
-use serde::Serialize;
 use crate::report::model::{Category, Severity};
+use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct RuleInfo {
@@ -28,7 +28,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git core.fsmonitor command execution sink",
         description: "Executes arbitrary commands via core.fsmonitor on git status/diff operations before workspace trust.",
         agents: &["Git", "Claude Code", "Cursor", "Codex"],
-        references: &["https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-git-config-rce-20260904-cs/"],
+        references: &[
+            "https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-git-config-rce-20260904-cs/",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-002",
@@ -48,7 +50,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git diff.external execution sink",
         description: "Specifies an external command executed whenever git diff runs.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffexternal"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffexternal",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-004",
@@ -58,7 +62,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git diff textconv filter execution",
         description: "Executes custom binary to convert binary files to text during git diff.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffdrivertextconv"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffdrivertextconv",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-005",
@@ -68,7 +74,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git diff driver command execution",
         description: "Executes custom driver binary during git diff operations.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffdrivercommand"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-diffdrivercommand",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-006",
@@ -78,7 +86,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git filter driver clean execution",
         description: "Runs custom command when staging files to git index.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriverclean"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriverclean",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-007",
@@ -88,7 +98,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git filter driver smudge execution",
         description: "Runs custom command when checking out files from git repository.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriversmudge"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriversmudge",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-008",
@@ -98,7 +110,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git filter driver process execution",
         description: "Spawns long-running filter process communicating over stdin/stdout during git checkout.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriverprocess"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-filterdriverprocess",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-009",
@@ -108,7 +122,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git core.sshCommand binary override",
         description: "Overrides SSH command binary executed during remote git network operations.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-coresshCommand"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-coresshCommand",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-010",
@@ -148,7 +164,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git credential.helper process execution",
         description: "Executes helper process or shell command during credential retrieval.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-credentialhelper"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-credentialhelper",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-014",
@@ -158,7 +176,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Git url.insteadOf unneutralizable redirection",
         description: "Rewrites remote repository URLs to hijack git fetch and push operations.",
         agents: &["Git", "Claude Code", "Cursor"],
-        references: &["https://git-scm.com/docs/git-config#Documentation/git-config.txt-urlbaseinsteadOf"],
+        references: &[
+            "https://git-scm.com/docs/git-config#Documentation/git-config.txt-urlbaseinsteadOf",
+        ],
     },
     RuleInfo {
         id: "PT-GIT-015",
@@ -238,7 +258,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Zero-width unicode smuggling in agent instructions",
         description: "Hides malicious prompt injection instructions using invisible zero-width unicode characters.",
         agents: &["Claude Code", "Cursor", "Copilot", "Gemini CLI"],
-        references: &["https://owasp.org/www-project-top-10-for-large-language-model-applications/"],
+        references: &[
+            "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+        ],
     },
     RuleInfo {
         id: "PT-INST-002",
@@ -248,7 +270,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "ANSI escape sequence smuggling in agent instructions",
         description: "Smuggles instructions or terminal escapes via ANSI sequences in markdown instruction files.",
         agents: &["Claude Code", "Cursor", "Copilot", "Gemini CLI"],
-        references: &["https://owasp.org/www-project-top-10-for-large-language-model-applications/"],
+        references: &[
+            "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+        ],
     },
     RuleInfo {
         id: "PT-INST-003",
@@ -258,7 +282,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "Prompt injection phrase in agent instructions",
         description: "Agent instruction file contains explicit prompt override or exfiltration commands.",
         agents: &["Claude Code", "Cursor", "Copilot", "Gemini CLI"],
-        references: &["https://owasp.org/www-project-top-10-for-large-language-model-applications/"],
+        references: &[
+            "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+        ],
     },
     RuleInfo {
         id: "PT-LOCK-001",
@@ -298,7 +324,9 @@ pub const RULES: &[RuleInfo] = &[
         title: "MCP server description prompt injection",
         description: "MCP server description contains hidden zero-width characters or prompt injection override phrases.",
         agents: &["Cursor", "Claude Code", "VS Code", "Gemini CLI"],
-        references: &["https://owasp.org/www-project-top-10-for-large-language-model-applications/"],
+        references: &[
+            "https://owasp.org/www-project-top-10-for-large-language-model-applications/",
+        ],
     },
     RuleInfo {
         id: "PT-MCP-002",
@@ -317,7 +345,14 @@ pub const RULES: &[RuleInfo] = &[
         category: Category::McpExecutionSink,
         title: "MCP server executes repo-local binary or inline shell",
         description: "Stdio MCP server command or args run an untrusted repo file or inline shell script.",
-        agents: &["Cursor", "Claude Code", "VS Code", "Zed", "Amazon Q", "Gemini CLI"],
+        agents: &[
+            "Cursor",
+            "Claude Code",
+            "VS Code",
+            "Zed",
+            "Amazon Q",
+            "Gemini CLI",
+        ],
         references: &[
             "https://nvd.nist.gov/vuln/detail/CVE-2025-64109",
             "https://nvd.nist.gov/vuln/detail/CVE-2025-54136",
@@ -340,7 +375,14 @@ pub const RULES: &[RuleInfo] = &[
         category: Category::SecretExposure,
         title: "Hardcoded secret in MCP server env or headers",
         description: "Literal credentials or API keys embedded in MCP server environment variables or request headers.",
-        agents: &["Cursor", "Claude Code", "VS Code", "Zed", "Amazon Q", "Gemini CLI"],
+        agents: &[
+            "Cursor",
+            "Claude Code",
+            "VS Code",
+            "Zed",
+            "Amazon Q",
+            "Gemini CLI",
+        ],
         references: &["https://cwe.mitre.org/data/definitions/798.html"],
     },
     RuleInfo {

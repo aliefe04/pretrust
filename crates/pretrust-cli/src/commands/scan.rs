@@ -1,14 +1,17 @@
-use std::time::Instant;
-use pretrust_core::report::json::JsonReport;
-use pretrust_core::report::sarif::to_sarif_string;
-use pretrust_core::report::model::Severity;
 use crate::cli::ScanArgs;
 use crate::ui::{print_finding, print_summary};
+use pretrust_core::report::json::JsonReport;
+use pretrust_core::report::model::Severity;
+use pretrust_core::report::sarif::to_sarif_string;
+use std::time::Instant;
 
 pub fn execute_scan(args: ScanArgs) -> i32 {
     let target_path = &args.path;
     if !target_path.exists() {
-        anstream::eprintln!("Error: Target path does not exist: {}", target_path.display());
+        anstream::eprintln!(
+            "Error: Target path does not exist: {}",
+            target_path.display()
+        );
         return 2;
     }
 
@@ -52,9 +55,5 @@ pub fn execute_scan(args: ScanArgs) -> i32 {
     let threshold: Severity = args.fail_on.into();
     let should_fail = findings.iter().any(|f| f.severity >= threshold);
 
-    if should_fail {
-        1
-    } else {
-        0
-    }
+    if should_fail { 1 } else { 0 }
 }

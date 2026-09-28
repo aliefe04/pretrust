@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Zero-dependency pre-trust execution guard CLI for AI coding agents"
+description = "Pre-trust execution guard CLI for AI coding agents"
 
 [[bin]]
 name = "pretrust"
@@ -16,11 +16,9 @@ path = "src/main.rs"
 [dependencies]
 pretrust-core = { path = "../pretrust-core" }
 clap = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 anstream = { workspace = true }
 anstyle = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

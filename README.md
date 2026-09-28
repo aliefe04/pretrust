@@ -21,7 +21,7 @@ Pretrust is a single Rust binary with no runtime dependencies. It checks a repos
 
 ### Installation
 
-Pretrust is not published to a package registry yet. Build it with Rust 1.85 or newer:
+Pretrust is not published to a package registry yet. Build it with Rust 1.88 or newer:
 
 ```bash
 cargo install --git https://github.com/aliefe04/pretrust pretrust-cli --bin pretrust

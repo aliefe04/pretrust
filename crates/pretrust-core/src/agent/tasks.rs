@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::Path;
 use crate::agent::format_rel_path;
 use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
+use std::path::Path;
 
 pub fn scan_tasks(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -13,10 +13,10 @@ pub fn scan_tasks(repo_root: &Path) -> Vec<Finding> {
         if let Ok(content) = fs::read_to_string(&cargo_toml) {
             scan_cargo_config_content(repo_root, &cargo_toml, &content, &mut findings);
         }
-    } else if cargo_bare.is_file() {
-        if let Ok(content) = fs::read_to_string(&cargo_bare) {
-            scan_cargo_config_content(repo_root, &cargo_bare, &content, &mut findings);
-        }
+    } else if cargo_bare.is_file()
+        && let Ok(content) = fs::read_to_string(&cargo_bare)
+    {
+        scan_cargo_config_content(repo_root, &cargo_bare, &content, &mut findings);
     }
 
     findings
@@ -36,48 +36,48 @@ pub fn scan_cargo_config_content(
     };
 
     // 1. [build] rustc-wrapper
-    if let Some(build_tbl) = parsed.get("build").and_then(|v| v.as_table()) {
-        if let Some(wrapper) = build_tbl.get("rustc-wrapper").and_then(|v| v.as_str()) {
-            findings.push(Finding {
-                id: "PT-CARGO-001".into(),
-                rule_name: "CargoRustcWrapper".into(),
-                severity: Severity::High,
-                category: Category::WorkspaceAutoRun,
-                message: format!(
-                    "Cargo build specifies custom rustc-wrapper: '{wrapper}' (executes on cargo check)"
-                ),
-                file_path: rel_file.clone(),
-                line: None,
-                key: Some("build.rustc-wrapper".into()),
-                value: Some(wrapper.to_string()),
-                action: Action::RequiresManualRemediation,
-                remediation: "Verify or remove custom rustc-wrapper in repository cargo config.".into(),
-            });
-        }
+    if let Some(build_tbl) = parsed.get("build").and_then(|v| v.as_table())
+        && let Some(wrapper) = build_tbl.get("rustc-wrapper").and_then(|v| v.as_str())
+    {
+        findings.push(Finding {
+            id: "PT-CARGO-001".into(),
+            rule_name: "CargoRustcWrapper".into(),
+            severity: Severity::High,
+            category: Category::WorkspaceAutoRun,
+            message: format!(
+                "Cargo build specifies custom rustc-wrapper: '{wrapper}' (executes on cargo check)"
+            ),
+            file_path: rel_file.clone(),
+            line: None,
+            key: Some("build.rustc-wrapper".into()),
+            value: Some(wrapper.to_string()),
+            action: Action::RequiresManualRemediation,
+            remediation: "Verify or remove custom rustc-wrapper in repository cargo config.".into(),
+        });
     }
 
     // 2. [target.*] runner
     if let Some(target_tbl) = parsed.get("target").and_then(|v| v.as_table()) {
         for (target_name, target_val) in target_tbl {
-            if let Some(target_obj) = target_val.as_table() {
-                if let Some(runner) = target_obj.get("runner") {
-                    let runner_str = runner.to_string();
-                    findings.push(Finding {
-                        id: "PT-CARGO-002".into(),
-                        rule_name: "CargoTargetRunner".into(),
-                        severity: Severity::High,
-                        category: Category::WorkspaceAutoRun,
-                        message: format!(
-                            "Cargo target '{target_name}' specifies custom runner: {runner_str}"
-                        ),
-                        file_path: rel_file.clone(),
-                        line: None,
-                        key: Some(format!("target.{target_name}.runner")),
-                        value: Some(runner_str),
-                        action: Action::RequiresManualRemediation,
-                        remediation: "Review custom cargo target runner commands.".into(),
-                    });
-                }
+            if let Some(target_obj) = target_val.as_table()
+                && let Some(runner) = target_obj.get("runner")
+            {
+                let runner_str = runner.to_string();
+                findings.push(Finding {
+                    id: "PT-CARGO-002".into(),
+                    rule_name: "CargoTargetRunner".into(),
+                    severity: Severity::High,
+                    category: Category::WorkspaceAutoRun,
+                    message: format!(
+                        "Cargo target '{target_name}' specifies custom runner: {runner_str}"
+                    ),
+                    file_path: rel_file.clone(),
+                    line: None,
+                    key: Some(format!("target.{target_name}.runner")),
+                    value: Some(runner_str),
+                    action: Action::RequiresManualRemediation,
+                    remediation: "Review custom cargo target runner commands.".into(),
+                });
             }
         }
     }

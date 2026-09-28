@@ -1,5 +1,5 @@
-use pretrust_core::report::rules::{all_rules, RulesCatalog};
 use crate::cli::RulesArgs;
+use pretrust_core::report::rules::{RulesCatalog, all_rules};
 
 pub fn execute_rules(args: RulesArgs) -> i32 {
     let rules = all_rules().to_vec();
@@ -19,7 +19,10 @@ pub fn execute_rules(args: RulesArgs) -> i32 {
             }
         }
     } else {
-        println!("{:<14} {:<10} {:<27} {}", "RULE ID", "SEVERITY", "CATEGORY", "TITLE");
+        println!(
+            "{:<14} {:<10} {:<27} TITLE",
+            "RULE ID", "SEVERITY", "CATEGORY"
+        );
         println!("{}", "-".repeat(96));
         for rule in rules {
             println!(

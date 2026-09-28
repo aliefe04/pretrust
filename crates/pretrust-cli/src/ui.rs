@@ -1,16 +1,24 @@
 use anstream::{eprintln, println};
 use anstyle::{AnsiColor, Color, Style};
-use pretrust_core::report::model::{Action, Finding, Severity};
-use pretrust_core::report::json::ReportSummary;
 use pretrust_core::lock::LockVerification;
+use pretrust_core::report::json::ReportSummary;
+use pretrust_core::report::model::{Action, Finding, Severity};
 
 pub const BOLD: Style = Style::new().bold();
 pub const DIM: Style = Style::new().dimmed();
-pub const RED: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red))).bold();
-pub const YELLOW: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))).bold();
-pub const GREEN: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))).bold();
+pub const RED: Style = Style::new()
+    .fg_color(Some(Color::Ansi(AnsiColor::Red)))
+    .bold();
+pub const YELLOW: Style = Style::new()
+    .fg_color(Some(Color::Ansi(AnsiColor::Yellow)))
+    .bold();
+pub const GREEN: Style = Style::new()
+    .fg_color(Some(Color::Ansi(AnsiColor::Green)))
+    .bold();
 pub const CYAN: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan)));
-pub const MAGENTA: Style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Magenta))).bold();
+pub const MAGENTA: Style = Style::new()
+    .fg_color(Some(Color::Ansi(AnsiColor::Magenta)))
+    .bold();
 
 pub fn severity_badge(severity: Severity) -> String {
     match severity {
@@ -33,7 +41,10 @@ pub fn print_finding_to(f: &Finding, to_stderr: bool) {
         None => f.file_path.clone(),
     };
 
-    let line1 = format!("{badge} {BOLD}{}{BOLD:#} {DIM}({}){DIM:#}", f.rule_name, f.id);
+    let line1 = format!(
+        "{badge} {BOLD}{}{BOLD:#} {DIM}({}){DIM:#}",
+        f.rule_name, f.id
+    );
     let line2 = format!("  {DIM}Location:{DIM:#} {CYAN}{loc}{CYAN:#}");
     let line3 = format!("  {DIM}Message:{DIM:#}  {}", f.message);
 
@@ -80,9 +91,21 @@ pub fn print_summary(summary: &ReportSummary, elapsed_ms: u128) {
     println!(
         "  Findings: {} total ({} critical, {} high, {} medium, {} low)",
         summary.total,
-        if summary.critical > 0 { format!("{RED}{}{RED:#}", summary.critical) } else { "0".into() },
-        if summary.high > 0 { format!("{RED}{}{RED:#}", summary.high) } else { "0".into() },
-        if summary.medium > 0 { format!("{YELLOW}{}{YELLOW:#}", summary.medium) } else { "0".into() },
+        if summary.critical > 0 {
+            format!("{RED}{}{RED:#}", summary.critical)
+        } else {
+            "0".into()
+        },
+        if summary.high > 0 {
+            format!("{RED}{}{RED:#}", summary.high)
+        } else {
+            "0".into()
+        },
+        if summary.medium > 0 {
+            format!("{YELLOW}{}{YELLOW:#}", summary.medium)
+        } else {
+            "0".into()
+        },
         summary.low,
     );
 
@@ -101,7 +124,9 @@ pub fn print_summary(summary: &ReportSummary, elapsed_ms: u128) {
 
 pub fn print_lock_drift(verification: &LockVerification) {
     if verification.is_clean() {
-        println!("{GREEN}✓ pretrust.lock verification passed: all files intact and matching{GREEN:#}");
+        println!(
+            "{GREEN}✓ pretrust.lock verification passed: all files intact and matching{GREEN:#}"
+        );
         return;
     }
 
@@ -115,10 +140,7 @@ pub fn print_lock_drift(verification: &LockVerification) {
     }
 
     for missing in &verification.missing {
-        eprintln!(
-            "  {YELLOW}[DELETED]{YELLOW:#}  {} (file removed)",
-            missing
-        );
+        eprintln!("  {YELLOW}[DELETED]{YELLOW:#}  {} (file removed)", missing);
     }
 
     for untracked in &verification.untracked_new {
@@ -128,5 +150,7 @@ pub fn print_lock_drift(verification: &LockVerification) {
         );
     }
 
-    eprintln!("\n{DIM}Run 'pretrust lock' to update fingerprints if changes were intentional.{DIM:#}");
+    eprintln!(
+        "\n{DIM}Run 'pretrust lock' to update fingerprints if changes were intentional.{DIM:#}"
+    );
 }

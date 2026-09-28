@@ -1,25 +1,25 @@
-use std::fs;
-use std::path::Path;
 use crate::agent::{format_rel_path, parse_jsonc};
 use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
+use std::path::Path;
 
 pub fn scan_vscode(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
     // 1. .vscode/settings.json
     let settings_path = repo_root.join(".vscode").join("settings.json");
-    if settings_path.is_file() {
-        if let Ok(content) = fs::read_to_string(&settings_path) {
-            scan_vscode_settings_content(repo_root, &settings_path, &content, &mut findings);
-        }
+    if settings_path.is_file()
+        && let Ok(content) = fs::read_to_string(&settings_path)
+    {
+        scan_vscode_settings_content(repo_root, &settings_path, &content, &mut findings);
     }
 
     // 2. .vscode/tasks.json
     let tasks_path = repo_root.join(".vscode").join("tasks.json");
-    if tasks_path.is_file() {
-        if let Ok(content) = fs::read_to_string(&tasks_path) {
-            scan_vscode_tasks_content(repo_root, &tasks_path, &content, &mut findings);
-        }
+    if tasks_path.is_file()
+        && let Ok(content) = fs::read_to_string(&tasks_path)
+    {
+        scan_vscode_tasks_content(repo_root, &tasks_path, &content, &mut findings);
     }
 
     findings
@@ -53,9 +53,10 @@ pub fn scan_vscode_settings_content(
     };
 
     for key in &["chat.tools.autoApprove", "chat.tools.global.autoApprove"] {
-        if let Some(val) = obj.get(*key) {
-            if is_truthy(val) {
-                findings.push(Finding {
+        if let Some(val) = obj.get(*key)
+            && is_truthy(val)
+        {
+            findings.push(Finding {
                     id: "PT-VSCODE-001".into(),
                     rule_name: "VsCodeToolAutoApprove".into(),
                     severity: Severity::High,
@@ -70,14 +71,14 @@ pub fn scan_vscode_settings_content(
                     action: Action::RequiresManualRemediation,
                     remediation: "Disable chat.tools.autoApprove in repository .vscode/settings.json to ensure interactive tool confirmation.".into(),
                 });
-            }
         }
     }
 
     // PT-VSCODE-002: task.allowAutomaticTasks == "on"
-    if let Some(val) = obj.get("task.allowAutomaticTasks").and_then(|v| v.as_str()) {
-        if val == "on" {
-            findings.push(Finding {
+    if let Some(val) = obj.get("task.allowAutomaticTasks").and_then(|v| v.as_str())
+        && val == "on"
+    {
+        findings.push(Finding {
                 id: "PT-VSCODE-002".into(),
                 rule_name: "VsCodeAutomaticTasksAllowed".into(),
                 severity: Severity::High,
@@ -90,7 +91,6 @@ pub fn scan_vscode_settings_content(
                 action: Action::RequiresManualRemediation,
                 remediation: "Remove or disable 'task.allowAutomaticTasks: on' in .vscode/settings.json to prevent automatic execution of workspace tasks.".into(),
             });
-        }
     }
 }
 
@@ -115,13 +115,20 @@ pub fn scan_vscode_tasks_content(
         for (idx, task_val) in tasks_arr.iter().enumerate() {
             if let Some(task_obj) = task_val.as_object() {
                 let default_label = format!("task[{idx}]");
-                let label = task_obj.get("label").and_then(|v| v.as_str()).unwrap_or(&default_label);
-                let command = task_obj.get("command").and_then(|v| v.as_str()).unwrap_or("");
+                let label = task_obj
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&default_label);
+                let command = task_obj
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-                if let Some(run_options) = task_obj.get("runOptions").and_then(|v| v.as_object()) {
-                    if let Some(run_on) = run_options.get("runOn").and_then(|v| v.as_str()) {
-                        if run_on == "folderOpen" {
-                            findings.push(Finding {
+                if let Some(run_options) = task_obj.get("runOptions").and_then(|v| v.as_object())
+                    && let Some(run_on) = run_options.get("runOn").and_then(|v| v.as_str())
+                    && run_on == "folderOpen"
+                {
+                    findings.push(Finding {
                                 id: "PT-TASK-001".into(),
                                 rule_name: "VSCodeTasksFolderOpen".into(),
                                 severity: Severity::Critical,
@@ -136,8 +143,6 @@ pub fn scan_vscode_tasks_content(
                                 action: Action::RequiresManualRemediation,
                                 remediation: "Remove 'runOptions.runOn: folderOpen' to prevent arbitrary code execution on workspace open.".into(),
                             });
-                        }
-                    }
                 }
             }
         }

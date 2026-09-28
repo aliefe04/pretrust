@@ -1,8 +1,8 @@
+use crate::cli::{AgentHarness, HookArgs};
+use pretrust_core::report::model::Severity;
+use serde_json::Value;
 use std::io::{self, Read};
 use std::path::Path;
-use serde_json::Value;
-use pretrust_core::report::model::Severity;
-use crate::cli::{AgentHarness, HookArgs};
 
 pub fn execute_hook(args: HookArgs) -> i32 {
     let mut stdin_buffer = String::new();
@@ -31,12 +31,11 @@ pub fn execute_hook(args: HookArgs) -> i32 {
         AgentHarness::Claude => {
             // Claude Code PreToolUse hook convention
             let mut command_to_check = None;
-            if let Some(payload) = &parsed_payload {
-                if let Some(tool_input) = payload.get("tool_input") {
-                    if let Some(cmd) = tool_input.get("command").and_then(|v| v.as_str()) {
-                        command_to_check = Some(cmd.to_string());
-                    }
-                }
+            if let Some(payload) = &parsed_payload
+                && let Some(tool_input) = payload.get("tool_input")
+                && let Some(cmd) = tool_input.get("command").and_then(|v| v.as_str())
+            {
+                command_to_check = Some(cmd.to_string());
             }
 
             let is_git_command = command_to_check
@@ -52,7 +51,9 @@ pub fn execute_hook(args: HookArgs) -> i32 {
                 for f in findings.iter().filter(|f| f.severity >= Severity::High) {
                     anstream::eprintln!(" - [{}]: {} ({})", f.severity, f.rule_name, f.message);
                 }
-                anstream::eprintln!("Run via 'pretrust run -- claude' to neutralize or remediate the findings.");
+                anstream::eprintln!(
+                    "Run via 'pretrust run -- claude' to neutralize or remediate the findings."
+                );
                 2
             } else {
                 0

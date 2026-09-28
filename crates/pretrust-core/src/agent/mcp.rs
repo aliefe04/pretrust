@@ -1,7 +1,9 @@
+use crate::agent::{
+    format_rel_path, has_injection_phrases, has_zero_width_chars, parse_jsonc, redact_secret,
+};
+use crate::report::model::{Action, Category, Finding, Severity};
 use std::fs;
 use std::path::Path;
-use crate::agent::{format_rel_path, has_injection_phrases, has_zero_width_chars, parse_jsonc, redact_secret};
-use crate::report::model::{Action, Category, Finding, Severity};
 
 pub fn scan_mcp(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -24,10 +26,10 @@ pub fn scan_mcp(repo_root: &Path) -> Vec<Finding> {
 
     for (rel_path, keys) in &targets {
         let p = repo_root.join(rel_path);
-        if p.is_file() {
-            if let Ok(content) = fs::read_to_string(&p) {
-                scan_mcp_file_content(repo_root, &p, &content, keys, &mut findings);
-            }
+        if p.is_file()
+            && let Ok(content) = fs::read_to_string(&p)
+        {
+            scan_mcp_file_content(repo_root, &p, &content, keys, &mut findings);
         }
     }
 
@@ -53,13 +55,7 @@ pub fn scan_mcp_file_content(
         if let Some(servers_obj) = parsed.get(*key_name).and_then(|v| v.as_object()) {
             for (server_name, server_val) in servers_obj {
                 if let Some(server_obj) = server_val.as_object() {
-                    scan_single_mcp_server(
-                        &rel_file,
-                        server_name,
-                        server_obj,
-                        is_gemini,
-                        findings,
-                    );
+                    scan_single_mcp_server(&rel_file, server_name, server_obj, is_gemini, findings);
                 }
             }
         }
@@ -75,10 +71,13 @@ fn scan_single_mcp_server(
 ) {
     let command_opt = server_obj.get("command").and_then(|v| v.as_str());
     let type_opt = server_obj.get("type").and_then(|v| v.as_str());
-    let url_opt = server_obj.get("url").and_then(|v| v.as_str())
+    let url_opt = server_obj
+        .get("url")
+        .and_then(|v| v.as_str())
         .or_else(|| server_obj.get("endpoint").and_then(|v| v.as_str()));
 
-    let is_remote = (type_opt == Some("http") || type_opt == Some("sse") || url_opt.is_some()) && command_opt.is_none();
+    let is_remote = (type_opt == Some("http") || type_opt == Some("sse") || url_opt.is_some())
+        && command_opt.is_none();
     let is_stdio = !is_remote;
 
     // 1. PT-MCP-004: GeminiProjectMcpServer (critical)
@@ -102,9 +101,10 @@ fn scan_single_mcp_server(
     }
 
     // 2. PT-MCP-001: McpPromptInjection (critical)
-    if let Some(desc) = server_obj.get("description").and_then(|v| v.as_str()) {
-        if has_zero_width_chars(desc) || has_injection_phrases(desc) {
-            findings.push(Finding {
+    if let Some(desc) = server_obj.get("description").and_then(|v| v.as_str())
+        && (has_zero_width_chars(desc) || has_injection_phrases(desc))
+    {
+        findings.push(Finding {
                 id: "PT-MCP-001".into(),
                 rule_name: "McpPromptInjection".into(),
                 severity: Severity::Critical,
@@ -119,30 +119,31 @@ fn scan_single_mcp_server(
                 action: Action::RequiresManualRemediation,
                 remediation: "Sanitize MCP server descriptions and remove hidden zero-width characters.".into(),
             });
-        }
     }
 
     // 3. PT-MCP-002: McpUnpinnedPackage (medium)
     if let Some(args_arr) = server_obj.get("args").and_then(|v| v.as_array()) {
         for arg in args_arr {
-            if let Some(arg_str) = arg.as_str() {
-                if arg_str.ends_with("@latest") || arg_str == "latest" {
-                    findings.push(Finding {
-                        id: "PT-MCP-002".into(),
-                        rule_name: "McpUnpinnedPackage".into(),
-                        severity: Severity::Medium,
-                        category: Category::UnpinnedDependency,
-                        message: format!(
-                            "MCP server '{server_name}' uses unpinned package version: '{arg_str}'"
-                        ),
-                        file_path: rel_file.to_string(),
-                        line: None,
-                        key: Some(format!("{server_name}.args")),
-                        value: Some(arg_str.to_string()),
-                        action: Action::WarnOnly,
-                        remediation: "Pin MCP package dependencies to exact immutable versions or commit SHAs.".into(),
-                    });
-                }
+            if let Some(arg_str) = arg.as_str()
+                && (arg_str.ends_with("@latest") || arg_str == "latest")
+            {
+                findings.push(Finding {
+                    id: "PT-MCP-002".into(),
+                    rule_name: "McpUnpinnedPackage".into(),
+                    severity: Severity::Medium,
+                    category: Category::UnpinnedDependency,
+                    message: format!(
+                        "MCP server '{server_name}' uses unpinned package version: '{arg_str}'"
+                    ),
+                    file_path: rel_file.to_string(),
+                    line: None,
+                    key: Some(format!("{server_name}.args")),
+                    value: Some(arg_str.to_string()),
+                    action: Action::WarnOnly,
+                    remediation:
+                        "Pin MCP package dependencies to exact immutable versions or commit SHAs."
+                            .into(),
+                });
             }
         }
     }
@@ -153,47 +154,47 @@ fn scan_single_mcp_server(
     if is_stdio {
         let mut local_cmd_detail = None;
 
-        if let Some(cmd) = command_opt {
-            if is_repo_local_path(cmd) || is_inline_shell_cmd(cmd) {
-                local_cmd_detail = Some(cmd.to_string());
-            }
+        if let Some(cmd) = command_opt
+            && (is_repo_local_path(cmd) || is_inline_shell_cmd(cmd))
+        {
+            local_cmd_detail = Some(cmd.to_string());
         }
 
-        if local_cmd_detail.is_none() {
-            if let Some(args_arr) = server_obj.get("args").and_then(|v| v.as_array()) {
-                let args_vec: Vec<&str> = args_arr.iter().filter_map(|v| v.as_str()).collect();
+        if local_cmd_detail.is_none()
+            && let Some(args_arr) = server_obj.get("args").and_then(|v| v.as_array())
+        {
+            let args_vec: Vec<&str> = args_arr.iter().filter_map(|v| v.as_str()).collect();
 
-                // Check inline shell flags
-                if let Some(cmd) = command_opt {
-                    let cmd_lower = cmd.to_ascii_lowercase();
-                    let is_sh = cmd_lower == "sh" || cmd_lower == "bash" || cmd_lower == "zsh";
-                    let is_ps = cmd_lower == "powershell" || cmd_lower == "pwsh";
-                    let is_cmd = cmd_lower == "cmd" || cmd_lower == "cmd.exe";
-                    let is_node = cmd_lower == "node" || cmd_lower == "nodejs";
-                    let is_python = cmd_lower == "python" || cmd_lower == "python3";
+            // Check inline shell flags
+            if let Some(cmd) = command_opt {
+                let cmd_lower = cmd.to_ascii_lowercase();
+                let is_sh = cmd_lower == "sh" || cmd_lower == "bash" || cmd_lower == "zsh";
+                let is_ps = cmd_lower == "powershell" || cmd_lower == "pwsh";
+                let is_cmd = cmd_lower == "cmd" || cmd_lower == "cmd.exe";
+                let is_node = cmd_lower == "node" || cmd_lower == "nodejs";
+                let is_python = cmd_lower == "python" || cmd_lower == "python3";
 
-                    for (i, arg) in args_vec.iter().enumerate() {
-                        let arg_lower = arg.to_ascii_lowercase();
-                        if (is_sh && (arg_lower == "-c" || arg_lower == "-e"))
-                            || (is_ps && (arg_lower == "-command" || arg_lower == "-c"))
-                            || (is_cmd && (arg_lower == "/c" || arg_lower == "/k"))
-                            || (is_node && (arg_lower == "-e" || arg_lower == "--eval"))
-                            || (is_python && arg_lower == "-c")
-                        {
-                            let payload = args_vec.get(i + 1).unwrap_or(arg);
-                            local_cmd_detail = Some(format!("{cmd} {arg} {payload}"));
-                            break;
-                        }
+                for (i, arg) in args_vec.iter().enumerate() {
+                    let arg_lower = arg.to_ascii_lowercase();
+                    if (is_sh && (arg_lower == "-c" || arg_lower == "-e"))
+                        || (is_ps && (arg_lower == "-command" || arg_lower == "-c"))
+                        || (is_cmd && (arg_lower == "/c" || arg_lower == "/k"))
+                        || (is_node && (arg_lower == "-e" || arg_lower == "--eval"))
+                        || (is_python && arg_lower == "-c")
+                    {
+                        let payload = args_vec.get(i + 1).unwrap_or(arg);
+                        local_cmd_detail = Some(format!("{cmd} {arg} {payload}"));
+                        break;
                     }
                 }
+            }
 
-                // Check args for repo local files or pipes
-                if local_cmd_detail.is_none() {
-                    for arg in &args_vec {
-                        if is_repo_local_script_or_pipe(arg) {
-                            local_cmd_detail = Some(arg.to_string());
-                            break;
-                        }
+            // Check args for repo local files or pipes
+            if local_cmd_detail.is_none() {
+                for arg in &args_vec {
+                    if is_repo_local_script_or_pipe(arg) {
+                        local_cmd_detail = Some(arg.to_string());
+                        break;
                     }
                 }
             }
@@ -223,9 +224,12 @@ fn scan_single_mcp_server(
     // Finding value MUST be redacted (first 4 chars + "…"). NEVER put full secret anywhere in finding!
     if let Some(env_obj) = server_obj.get("env").and_then(|v| v.as_object()) {
         for (k, v) in env_obj {
-            if let Some(val_str) = v.as_str() {
-                if is_secret_candidate(k, true) && !is_ref_interpolation(val_str) && !val_str.trim().is_empty() {
-                    findings.push(Finding {
+            if let Some(val_str) = v.as_str()
+                && is_secret_candidate(k, true)
+                && !is_ref_interpolation(val_str)
+                && !val_str.trim().is_empty()
+            {
+                findings.push(Finding {
                         id: "PT-MCP-005".into(),
                         rule_name: "McpHardcodedSecret".into(),
                         severity: Severity::High,
@@ -240,16 +244,18 @@ fn scan_single_mcp_server(
                         action: Action::RequiresManualRemediation,
                         remediation: "Remove literal secrets from MCP configuration. Use variable references such as ${{input:...}} or ${{env:...}}.".into(),
                     });
-                }
             }
         }
     }
 
     if let Some(headers_obj) = server_obj.get("headers").and_then(|v| v.as_object()) {
         for (k, v) in headers_obj {
-            if let Some(val_str) = v.as_str() {
-                if is_secret_candidate(k, false) && !is_ref_interpolation(val_str) && !val_str.trim().is_empty() {
-                    findings.push(Finding {
+            if let Some(val_str) = v.as_str()
+                && is_secret_candidate(k, false)
+                && !is_ref_interpolation(val_str)
+                && !val_str.trim().is_empty()
+            {
+                findings.push(Finding {
                         id: "PT-MCP-005".into(),
                         rule_name: "McpHardcodedSecret".into(),
                         severity: Severity::High,
@@ -264,28 +270,29 @@ fn scan_single_mcp_server(
                         action: Action::RequiresManualRemediation,
                         remediation: "Remove literal secrets from MCP configuration. Use variable references such as ${{input:...}} or ${{env:...}}.".into(),
                     });
-                }
             }
         }
     }
 
     // 6. PT-MCP-006: McpInsecureRemote (medium)
     // Remote MCP url with http:// to a non-loopback host
-    if let Some(url) = url_opt {
-        if url.starts_with("http://") {
-            let without_proto = &url["http://".len()..];
-            let host_end = without_proto.find(|c| c == '/' || c == ':' || c == '?').unwrap_or(without_proto.len());
-            let host = &without_proto[..host_end];
+    if let Some(url) = url_opt
+        && let Some(without_proto) = url.strip_prefix("http://")
+    {
+        let host_end = without_proto
+            .find(['/', ':', '?'])
+            .unwrap_or(without_proto.len());
+        let host = &without_proto[..host_end];
 
-            let is_loopback = host == "localhost"
-                || host == "127.0.0.1"
-                || host.starts_with("127.")
-                || host == "0.0.0.0"
-                || host == "::1"
-                || host == "[::1]";
+        let is_loopback = host == "localhost"
+            || host == "127.0.0.1"
+            || host.starts_with("127.")
+            || host == "0.0.0.0"
+            || host == "::1"
+            || host == "[::1]";
 
-            if !is_loopback {
-                findings.push(Finding {
+        if !is_loopback {
+            findings.push(Finding {
                     id: "PT-MCP-006".into(),
                     rule_name: "McpInsecureRemote".into(),
                     severity: Severity::Medium,
@@ -300,7 +307,6 @@ fn scan_single_mcp_server(
                     action: Action::WarnOnly,
                     remediation: "Use HTTPS for remote MCP servers or restrict HTTP to local loopback hosts.".into(),
                 });
-            }
         }
     }
 }
@@ -334,15 +340,21 @@ fn is_repo_local_script_or_pipe(arg: &str) -> bool {
         return true;
     }
 
-    if trimmed.contains("| sh") || trimmed.contains("| bash") || trimmed.contains("curl ") && trimmed.contains("|") {
+    if trimmed.contains("| sh")
+        || trimmed.contains("| bash")
+        || trimmed.contains("curl ") && trimmed.contains("|")
+    {
         return true;
     }
 
-    let is_abs = trimmed.starts_with('/') || (trimmed.len() >= 3 && trimmed.as_bytes()[1] == b':' && (trimmed.as_bytes()[2] == b'/' || trimmed.as_bytes()[2] == b'\\'));
+    let is_abs = trimmed.starts_with('/')
+        || (trimmed.len() >= 3
+            && trimmed.as_bytes()[1] == b':'
+            && (trimmed.as_bytes()[2] == b'/' || trimmed.as_bytes()[2] == b'\\'));
     if !is_abs {
         let script_exts = [
-            ".js", ".mjs", ".cjs", ".ts", ".mts", ".py", ".sh", ".bash", ".zsh",
-            ".ps1", ".bat", ".cmd", ".rb", ".php",
+            ".js", ".mjs", ".cjs", ".ts", ".mts", ".py", ".sh", ".bash", ".zsh", ".ps1", ".bat",
+            ".cmd", ".rb", ".php",
         ];
         if script_exts.iter().any(|ext| trimmed.ends_with(ext)) {
             return true;

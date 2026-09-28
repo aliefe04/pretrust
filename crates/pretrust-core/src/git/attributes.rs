@@ -1,8 +1,8 @@
+use crate::git::config::resolve_git_dirs;
+use crate::report::model::{Action, Category, Finding, Severity};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::git::config::resolve_git_dirs;
-use crate::report::model::{Action, Category, Finding, Severity};
 
 #[derive(Debug, Default, Clone)]
 pub struct BoundDrivers {

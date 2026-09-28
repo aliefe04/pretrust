@@ -1,7 +1,7 @@
-use std::fs;
-use std::path::{Path, PathBuf};
 use crate::agent::{has_injection_phrases, has_zero_width_chars};
 use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub fn scan_instructions(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -42,13 +42,13 @@ pub fn collect_instruction_files(repo_root: &Path) -> Vec<PathBuf> {
     }
 
     let cursor_rules_dir = repo_root.join(".cursor").join("rules");
-    if cursor_rules_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&cursor_rules_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    files.push(path);
-                }
+    if cursor_rules_dir.is_dir()
+        && let Ok(entries) = fs::read_dir(&cursor_rules_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                files.push(path);
             }
         }
     }
@@ -155,7 +155,15 @@ mod tests {
 
         let findings = scan_instructions(dir.path());
         assert_eq!(findings.len(), 2);
-        assert!(findings.iter().any(|f| f.rule_name == "AgentInstructionZeroWidthSmuggling"));
-        assert!(findings.iter().any(|f| f.rule_name == "AgentInstructionPromptInjection"));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule_name == "AgentInstructionZeroWidthSmuggling")
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.rule_name == "AgentInstructionPromptInjection")
+        );
     }
 }

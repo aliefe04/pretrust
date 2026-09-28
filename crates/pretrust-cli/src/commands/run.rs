@@ -1,7 +1,7 @@
+use crate::cli::RunArgs;
+use crate::ui::{BOLD, RED, YELLOW, print_finding_to};
 use std::path::Path;
 use std::process::Command;
-use crate::cli::RunArgs;
-use crate::ui::{print_finding_to, RED, YELLOW, BOLD};
 
 pub fn execute_run(args: RunArgs) -> i32 {
     let repo_root = Path::new(".");
@@ -22,9 +22,7 @@ pub fn execute_run(args: RunArgs) -> i32 {
             print_finding_to(f, true);
         }
 
-        anstream::eprintln!(
-            "{RED}Refusing to launch agent in hostile environment.{RED:#}"
-        );
+        anstream::eprintln!("{RED}Refusing to launch agent in hostile environment.{RED:#}");
         anstream::eprintln!(
             "{YELLOW}Hint:{YELLOW:#} Remediation required, or pass '{BOLD}--allow-sinks{BOLD:#}' to bypass at your own risk.\n"
         );

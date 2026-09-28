@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
-use serde::{Deserialize, Serialize};
 use crate::report::model::{Finding, Severity};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SarifReport {
@@ -105,7 +105,9 @@ pub fn generate_sarif(findings: &[Finding]) -> SarifReport {
         rules_map.entry(f.rule_name.clone()).or_insert_with(|| {
             let rule_meta = crate::report::rules::get_rule(&f.id)
                 .or_else(|| crate::report::rules::get_rule(&f.rule_name));
-            let title = rule_meta.map(|r| r.title.to_string()).unwrap_or_else(|| format!("Pretrust rule {}", f.rule_name));
+            let title = rule_meta
+                .map(|r| r.title.to_string())
+                .unwrap_or_else(|| format!("Pretrust rule {}", f.rule_name));
             let help_uri = rule_meta.and_then(|r| r.references.first().map(|s| s.to_string()));
             let help_text = if let Some(meta) = rule_meta {
                 format!("{}\n\nRemediation: {}", meta.description, f.remediation)
@@ -115,15 +117,11 @@ pub fn generate_sarif(findings: &[Finding]) -> SarifReport {
             SarifRule {
                 id: f.rule_name.clone(),
                 name: f.rule_name.clone(),
-                short_description: SarifMessage {
-                    text: title,
-                },
+                short_description: SarifMessage { text: title },
                 default_configuration: SarifRuleConfiguration {
                     level: level.clone(),
                 },
-                help: SarifMessage {
-                    text: help_text,
-                },
+                help: SarifMessage { text: help_text },
                 help_uri,
             }
         });

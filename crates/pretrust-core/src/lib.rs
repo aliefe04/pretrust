@@ -6,12 +6,14 @@ pub mod report;
 use std::collections::HashSet;
 use std::path::Path;
 
-pub use report::model::{Action, Category, Finding, Severity};
+pub use git::harden::{HardenedEnvironment, build_hardened_env};
+pub use lock::{
+    LockVerification, generate_lockfile, read_lockfile, verify_lockfile, write_lockfile,
+};
 pub use report::json::{JsonReport, ReportSummary};
-pub use report::sarif::{generate_sarif, to_sarif_string, SarifReport};
-pub use report::rules::{all_rules, get_rule, RuleInfo, RulesCatalog, RULES};
-pub use git::harden::{build_hardened_env, HardenedEnvironment};
-pub use lock::{generate_lockfile, read_lockfile, verify_lockfile, write_lockfile, LockVerification};
+pub use report::model::{Action, Category, Finding, Severity};
+pub use report::rules::{RULES, RuleInfo, RulesCatalog, all_rules, get_rule};
+pub use report::sarif::{SarifReport, generate_sarif, to_sarif_string};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -38,7 +40,12 @@ pub fn scan_workspace(repo_root: &Path) -> Vec<Finding> {
     let mut deduped = Vec::new();
 
     for f in all_findings {
-        let key = (f.rule_name.clone(), f.file_path.clone(), f.line, f.key.clone());
+        let key = (
+            f.rule_name.clone(),
+            f.file_path.clone(),
+            f.line,
+            f.key.clone(),
+        );
         if seen.insert(key) {
             deduped.push(f);
         }
@@ -46,7 +53,8 @@ pub fn scan_workspace(repo_root: &Path) -> Vec<Finding> {
 
     // Sort findings by severity (Critical first) then file path
     deduped.sort_by(|a, b| {
-        b.severity.cmp(&a.severity)
+        b.severity
+            .cmp(&a.severity)
             .then_with(|| a.file_path.cmp(&b.file_path))
             .then_with(|| a.line.cmp(&b.line))
     });

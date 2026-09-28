@@ -1,9 +1,9 @@
+use crate::report::model::{Action, Category, Finding, Severity};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use crate::report::model::{Action, Category, Finding, Severity};
 
 pub const LOCKFILE_NAME: &str = "pretrust.lock";
 pub const LOCKFILE_VERSION: u32 = 1;
@@ -62,16 +62,14 @@ impl LockVerification {
                 rule_name: "LockfileMissingFile".into(),
                 severity: Severity::High,
                 category: Category::PromptInjection,
-                message: format!(
-                    "Locked file '{}' was deleted from repository",
-                    missing
-                ),
+                message: format!("Locked file '{}' was deleted from repository", missing),
                 file_path: missing.clone(),
                 line: None,
                 key: None,
                 value: None,
                 action: Action::WarnOnly,
-                remediation: "Re-add missing file or run 'pretrust lock' to update fingerprint.".into(),
+                remediation: "Re-add missing file or run 'pretrust lock' to update fingerprint."
+                    .into(),
             });
         }
 
@@ -90,7 +88,9 @@ impl LockVerification {
                 key: None,
                 value: None,
                 action: Action::RequiresManualRemediation,
-                remediation: "Verify newly added agent instructions and run 'pretrust lock' to lock them.".into(),
+                remediation:
+                    "Verify newly added agent instructions and run 'pretrust lock' to lock them."
+                        .into(),
             });
         }
 
@@ -116,13 +116,13 @@ pub fn collect_lockable_files(repo_root: &Path) -> Vec<PathBuf> {
     }
 
     let cursor_rules_dir = repo_root.join(".cursor").join("rules");
-    if cursor_rules_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&cursor_rules_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    files.push(path);
-                }
+    if cursor_rules_dir.is_dir()
+        && let Ok(entries) = fs::read_dir(&cursor_rules_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                files.push(path);
             }
         }
     }
@@ -165,10 +165,7 @@ pub fn read_lockfile(repo_root: &Path) -> Option<Lockfile> {
 }
 
 pub fn verify_lockfile(repo_root: &Path) -> Option<LockVerification> {
-    let lockfile = match read_lockfile(repo_root) {
-        Some(l) => l,
-        None => return None,
-    };
+    let lockfile = read_lockfile(repo_root)?;
 
     let current_lockables = collect_lockable_files(repo_root);
     let mut current_map = BTreeMap::new();
@@ -240,7 +237,11 @@ mod tests {
         assert_eq!(check.matched.len(), 2);
 
         // 2. Tampering / drift
-        fs::write(dir.path().join(".cursorrules"), "Rules v1 modified with prompt injection\n").unwrap();
+        fs::write(
+            dir.path().join(".cursorrules"),
+            "Rules v1 modified with prompt injection\n",
+        )
+        .unwrap();
 
         let check2 = verify_lockfile(dir.path()).unwrap();
         assert!(!check2.is_clean());

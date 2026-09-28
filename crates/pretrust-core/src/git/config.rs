@@ -1,7 +1,7 @@
+use crate::report::model::{Action, Category, Finding, Severity};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::report::model::{Action, Category, Finding, Severity};
 
 #[derive(Debug, Clone)]
 pub struct GitDirs {
@@ -32,7 +32,9 @@ pub fn resolve_git_dirs(repo_root: &Path) -> Option<GitDirs> {
 
     let (git_dir, common_dir) = if dot_git.is_file() {
         let content = fs::read_to_string(&dot_git).ok()?;
-        let gitdir_line = content.lines().find(|l| l.trim_start().starts_with("gitdir:"))?;
+        let gitdir_line = content
+            .lines()
+            .find(|l| l.trim_start().starts_with("gitdir:"))?;
         let rel_path = gitdir_line.trim_start().strip_prefix("gitdir:")?.trim();
         let resolved_git_dir = if Path::new(rel_path).is_absolute() {
             PathBuf::from(rel_path)
@@ -101,7 +103,8 @@ pub fn scan_git_config(repo_root: &Path) -> Vec<Finding> {
 fn find_line_number(file_content: &str, key_fragment: &str) -> Option<usize> {
     for (idx, line) in file_content.lines().enumerate() {
         let trimmed = line.trim();
-        if !trimmed.starts_with('#') && !trimmed.starts_with(';') && trimmed.contains(key_fragment) {
+        if !trimmed.starts_with('#') && !trimmed.starts_with(';') && trimmed.contains(key_fragment)
+        {
             return Some(idx + 1);
         }
     }
@@ -131,19 +134,25 @@ fn scan_config_file_recursive(
             key: Some("include.path".into()),
             value: None,
             action: Action::WarnOnly,
-            remediation: "Eliminate deeply nested or recursive include files in git configuration.".into(),
+            remediation: "Eliminate deeply nested or recursive include files in git configuration."
+                .into(),
         });
         return;
     }
 
-    let canonical = config_path.canonicalize().unwrap_or_else(|_| config_path.to_path_buf());
+    let canonical = config_path
+        .canonicalize()
+        .unwrap_or_else(|_| config_path.to_path_buf());
     if !visited.insert(canonical) {
         findings.push(Finding {
             id: "PT-GIT-012".into(),
             rule_name: "GitConfigCircularInclude".into(),
             severity: Severity::High,
             category: Category::ConfigurationSmuggling,
-            message: format!("Circular git config include detected: {}", config_path.display()),
+            message: format!(
+                "Circular git config include detected: {}",
+                config_path.display()
+            ),
             file_path: format_rel_path(repo_root, config_path),
             line: None,
             key: Some("include.path".into()),
@@ -230,9 +239,9 @@ fn handle_include(
     findings: &mut Vec<Finding>,
 ) {
     let base_dir = current_config.parent().unwrap_or(repo_root);
-    let target_path = if include_val.starts_with("~/") {
+    let target_path = if let Some(stripped) = include_val.strip_prefix("~/") {
         if let Some(home) = std::env::var_os("HOME") {
-            PathBuf::from(home).join(&include_val[2..])
+            PathBuf::from(home).join(stripped)
         } else {
             PathBuf::from(include_val)
         }
@@ -243,7 +252,9 @@ fn handle_include(
     };
 
     let target_canonical = target_path.canonicalize().ok();
-    let repo_canonical = repo_root.canonicalize().unwrap_or_else(|_| repo_root.to_path_buf());
+    let repo_canonical = repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| repo_root.to_path_buf());
 
     let is_external = match &target_canonical {
         Some(canon) => !canon.starts_with(&repo_canonical),
@@ -265,14 +276,16 @@ fn handle_include(
             key: Some("include.path".into()),
             value: Some(include_val.into()),
             action: Action::WarnOnly,
-            remediation: "Do not include external or arbitrary filesystem paths in repository git configs.".into(),
+            remediation:
+                "Do not include external or arbitrary filesystem paths in repository git configs."
+                    .into(),
         });
     }
 
-    if let Some(valid_target) = target_canonical {
-        if valid_target.is_file() {
-            scan_config_file_recursive(repo_root, &valid_target, depth + 1, visited, findings);
-        }
+    if let Some(valid_target) = target_canonical
+        && valid_target.is_file()
+    {
+        scan_config_file_recursive(repo_root, &valid_target, depth + 1, visited, findings);
     }
 }
 
@@ -351,8 +364,16 @@ fn evaluate_git_key_value(
             remediation: "Remove 'diff.external' from git configuration.".into(),
         });
     } else if sec_lower == "diff" && (key_lower == "textconv" || key_lower == "command") {
-        let rule_name = if key_lower == "textconv" { "GitDiffTextconv" } else { "GitDiffCommand" };
-        let id = if key_lower == "textconv" { "PT-GIT-004" } else { "PT-GIT-005" };
+        let rule_name = if key_lower == "textconv" {
+            "GitDiffTextconv"
+        } else {
+            "GitDiffCommand"
+        };
+        let id = if key_lower == "textconv" {
+            "PT-GIT-004"
+        } else {
+            "PT-GIT-005"
+        };
         findings.push(Finding {
             id: id.into(),
             rule_name: rule_name.into(),
@@ -366,9 +387,12 @@ fn evaluate_git_key_value(
             key: Some(full_key.to_string()),
             value: Some(val.to_string()),
             action: Action::NeutralizableViaEnv,
-            remediation: "Ensure diff driver commands are trusted or run inside pretrust wrapper.".into(),
+            remediation: "Ensure diff driver commands are trusted or run inside pretrust wrapper."
+                .into(),
         });
-    } else if sec_lower == "filter" && (key_lower == "clean" || key_lower == "smudge" || key_lower == "process") {
+    } else if sec_lower == "filter"
+        && (key_lower == "clean" || key_lower == "smudge" || key_lower == "process")
+    {
         if is_allowlisted_filter(full_key, val) {
             return;
         }
@@ -440,7 +464,8 @@ fn evaluate_git_key_value(
             key: Some(full_key.to_string()),
             value: Some(val.to_string()),
             action: Action::RequiresManualRemediation,
-            remediation: "Remove 'url.<base>.insteadOf' redirection or pass '--allow-sinks'.".into(),
+            remediation: "Remove 'url.<base>.insteadOf' redirection or pass '--allow-sinks'."
+                .into(),
         });
     } else if sec_lower == "alias" {
         let val_trimmed = val.trim();
@@ -569,45 +594,83 @@ mod tests {
 
         let findings = scan_git_config(dir.path());
 
-        let fsmonitor = findings.iter().find(|f| f.rule_name == "GitFsMonitor").expect("fsmonitor");
+        let fsmonitor = findings
+            .iter()
+            .find(|f| f.rule_name == "GitFsMonitor")
+            .expect("fsmonitor");
         assert_eq!(fsmonitor.severity, Severity::Critical);
         assert_eq!(fsmonitor.action, Action::NeutralizableViaEnv);
 
-        let hookspath = findings.iter().find(|f| f.rule_name == "GitHooksPath").expect("hooksPath");
+        let hookspath = findings
+            .iter()
+            .find(|f| f.rule_name == "GitHooksPath")
+            .expect("hooksPath");
         assert_eq!(hookspath.severity, Severity::Critical);
 
-        let ssh = findings.iter().find(|f| f.rule_name == "GitSshCommand").expect("sshCommand");
+        let ssh = findings
+            .iter()
+            .find(|f| f.rule_name == "GitSshCommand")
+            .expect("sshCommand");
         assert_eq!(ssh.severity, Severity::High);
 
-        let diff_ext = findings.iter().find(|f| f.rule_name == "GitDiffExternal").expect("diff.external");
+        let diff_ext = findings
+            .iter()
+            .find(|f| f.rule_name == "GitDiffExternal")
+            .expect("diff.external");
         assert_eq!(diff_ext.severity, Severity::High);
 
-        let diff_tc = findings.iter().find(|f| f.rule_name == "GitDiffTextconv").expect("textconv");
+        let diff_tc = findings
+            .iter()
+            .find(|f| f.rule_name == "GitDiffTextconv")
+            .expect("textconv");
         assert_eq!(diff_tc.severity, Severity::High);
 
-        let diff_cmd = findings.iter().find(|f| f.rule_name == "GitDiffCommand").expect("diff command");
+        let diff_cmd = findings
+            .iter()
+            .find(|f| f.rule_name == "GitDiffCommand")
+            .expect("diff command");
         assert_eq!(diff_cmd.severity, Severity::High);
 
-        let bad_clean = findings.iter().find(|f| f.rule_name == "GitFilterClean").expect("filter.clean");
+        let bad_clean = findings
+            .iter()
+            .find(|f| f.rule_name == "GitFilterClean")
+            .expect("filter.clean");
         assert_eq!(bad_clean.severity, Severity::High);
 
         // Verify git-lfs is allowlisted
-        assert!(findings.iter().all(|f| f.value.as_deref() != Some("git-lfs clean -- %f")));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.value.as_deref() != Some("git-lfs clean -- %f"))
+        );
 
-        let cred = findings.iter().find(|f| f.rule_name == "GitCredentialHelper").expect("credential.helper");
+        let cred = findings
+            .iter()
+            .find(|f| f.rule_name == "GitCredentialHelper")
+            .expect("credential.helper");
         assert_eq!(cred.severity, Severity::High);
 
-        let url = findings.iter().find(|f| f.rule_name == "GitUrlInsteadOf").expect("url.insteadOf");
+        let url = findings
+            .iter()
+            .find(|f| f.rule_name == "GitUrlInsteadOf")
+            .expect("url.insteadOf");
         assert_eq!(url.severity, Severity::Critical);
         assert_eq!(url.action, Action::RequiresManualRemediation);
         assert!(url.is_blocking_for_run());
 
-        let alias_pwn = findings.iter().find(|f| f.rule_name == "GitShellAlias").expect("alias.pwn");
+        let alias_pwn = findings
+            .iter()
+            .find(|f| f.rule_name == "GitShellAlias")
+            .expect("alias.pwn");
         assert_eq!(alias_pwn.severity, Severity::High);
         assert_eq!(alias_pwn.action, Action::RequiresManualRemediation);
 
         // Verify safe alias "st" is not flagged
-        assert!(findings.iter().all(|f| f.key.as_deref() != Some("alias.st")));
+        assert!(
+            findings
+                .iter()
+                .all(|f| f.key.as_deref() != Some("alias.st"))
+        );
     }
 
     #[test]

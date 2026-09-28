@@ -1,14 +1,14 @@
-use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use pretrust_core::report::model::Severity;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "pretrust",
     author = "Ali Efe Çakıcı <efe@aecapi.com>",
     version,
-    about = "Zero-dependency pre-trust execution guard for AI coding agents",
-    long_about = "Pretrust inspects repositories for pre-trust execution sinks (GitSpawn, Plugin4Shell, task auto-runs) and provides an execution-time runtime wrapper that neutralizes hostile configurations."
+    about = "Pre-trust execution guard for AI coding agents",
+    long_about = "Pretrust inspects repositories for pre-trust execution sinks (git config hooks and drivers, MCP server and agent lifecycle hooks, task auto-runs, instruction smuggling) and provides an execution-time wrapper that neutralizes git execution sinks without modifying files on disk."
 )]
 pub struct Cli {
     #[command(subcommand)]

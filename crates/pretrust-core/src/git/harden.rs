@@ -1,6 +1,6 @@
+use crate::git::attributes::extract_defined_drivers;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use crate::git::attributes::extract_defined_drivers;
 
 #[derive(Debug, Clone)]
 pub struct HardenedEnvironment {
@@ -77,7 +77,10 @@ pub fn build_hardened_env(repo_root: &Path) -> HardenedEnvironment {
     env.insert("GIT_PAGER".to_string(), "cat".to_string());
     env.insert("PAGER".to_string(), "cat".to_string());
     env.insert("GIT_EXTERNAL_DIFF".to_string(), "true".to_string());
-    env.insert("GIT_SSH_COMMAND".to_string(), "ssh -o BatchMode=yes".to_string());
+    env.insert(
+        "GIT_SSH_COMMAND".to_string(),
+        "ssh -o BatchMode=yes".to_string(),
+    );
 
     HardenedEnvironment {
         env_vars: env,
@@ -88,8 +91,8 @@ pub fn build_hardened_env(repo_root: &Path) -> HardenedEnvironment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn test_hardened_env_generation() {

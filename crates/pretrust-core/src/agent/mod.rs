@@ -5,8 +5,8 @@ pub mod mcp;
 pub mod tasks;
 pub mod vscode;
 
-use std::path::Path;
 use crate::report::model::Finding;
+use std::path::Path;
 
 pub const AGENT_CONFIG_RELATIVE_PATHS: &[&str] = &[
     "AGENTS.md",
@@ -53,7 +53,9 @@ pub fn has_zero_width_chars(s: &str) -> bool {
 
 pub fn has_injection_phrases(s: &str) -> bool {
     let lower = s.to_ascii_lowercase();
-    INJECTION_PHRASES.iter().any(|phrase| lower.contains(phrase))
+    INJECTION_PHRASES
+        .iter()
+        .any(|phrase| lower.contains(phrase))
 }
 
 pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {

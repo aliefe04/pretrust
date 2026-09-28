@@ -1,16 +1,16 @@
-use std::fs;
-use std::path::Path;
 use crate::agent::{format_rel_path, parse_jsonc};
 use crate::report::model::{Action, Category, Finding, Severity};
+use std::fs;
+use std::path::Path;
 
 pub fn scan_claude(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for name in &["settings.json", "settings.local.json"] {
         let path = repo_root.join(".claude").join(name);
-        if path.is_file() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                scan_claude_settings_content(repo_root, &path, &content, &mut findings);
-            }
+        if path.is_file()
+            && let Ok(content) = fs::read_to_string(&path)
+        {
+            scan_claude_settings_content(repo_root, &path, &content, &mut findings);
         }
     }
     findings
@@ -116,10 +116,17 @@ pub fn scan_claude_settings_content(
     for (key, subkey) in &helper_keys {
         if let Some(val) = obj.get(*key) {
             let cmd_str = match subkey {
-                Some(sub) => val.get(*sub).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                Some(sub) => val
+                    .get(*sub)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 None => match val {
                     serde_json::Value::String(s) => Some(s.clone()),
-                    serde_json::Value::Object(o) => o.get("command").and_then(|v| v.as_str()).map(|s| s.to_string()).or_else(|| Some(val.to_string())),
+                    serde_json::Value::Object(o) => o
+                        .get("command")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| Some(val.to_string())),
                     _ => Some(val.to_string()),
                 },
             };
@@ -146,15 +153,25 @@ pub fn scan_claude_settings_content(
 
     // 4. PT-CLAUDE-003: ClaudeMcpAutoApprove (high)
     // enableAllProjectMcpServers == true or enabledMcpjsonServers non-empty
-    let enable_all = obj.get("enableAllProjectMcpServers").and_then(|v| v.as_bool()).unwrap_or(false);
-    let enabled_mcpjson = obj.get("enabledMcpjsonServers").map(|v| match v {
-        serde_json::Value::Array(arr) => !arr.is_empty(),
-        serde_json::Value::Bool(b) => *b,
-        _ => false,
-    }).unwrap_or(false);
+    let enable_all = obj
+        .get("enableAllProjectMcpServers")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let enabled_mcpjson = obj
+        .get("enabledMcpjsonServers")
+        .map(|v| match v {
+            serde_json::Value::Array(arr) => !arr.is_empty(),
+            serde_json::Value::Bool(b) => *b,
+            _ => false,
+        })
+        .unwrap_or(false);
 
     if enable_all || enabled_mcpjson {
-        let trigger_key = if enable_all { "enableAllProjectMcpServers" } else { "enabledMcpjsonServers" };
+        let trigger_key = if enable_all {
+            "enableAllProjectMcpServers"
+        } else {
+            "enabledMcpjsonServers"
+        };
         findings.push(Finding {
             id: "PT-CLAUDE-003".into(),
             rule_name: "ClaudeMcpAutoApprove".into(),
@@ -175,9 +192,10 @@ pub fn scan_claude_settings_content(
     // 5. PT-CLAUDE-004: ClaudePermissiveMode (high)
     // permissions.defaultMode == "bypassPermissions" or permissions.allow contains a blanket shell grant ("Bash", "Bash(*)", "Bash(*:*)", "Bash(**)")
     if let Some(perm_obj) = obj.get("permissions").and_then(|v| v.as_object()) {
-        if let Some(default_mode) = perm_obj.get("defaultMode").and_then(|v| v.as_str()) {
-            if default_mode == "bypassPermissions" {
-                findings.push(Finding {
+        if let Some(default_mode) = perm_obj.get("defaultMode").and_then(|v| v.as_str())
+            && default_mode == "bypassPermissions"
+        {
+            findings.push(Finding {
                     id: "PT-CLAUDE-004".into(),
                     rule_name: "ClaudePermissiveMode".into(),
                     severity: Severity::High,
@@ -190,14 +208,17 @@ pub fn scan_claude_settings_content(
                     action: Action::RequiresManualRemediation,
                     remediation: "Remove 'bypassPermissions' from permissions.defaultMode in Claude settings.".into(),
                 });
-            }
         }
 
         if let Some(allow_arr) = perm_obj.get("allow").and_then(|v| v.as_array()) {
             for entry in allow_arr {
                 if let Some(s) = entry.as_str() {
                     let trimmed = s.trim();
-                    if trimmed == "Bash" || trimmed == "Bash(*)" || trimmed == "Bash(*:*)" || trimmed == "Bash(**)" {
+                    if trimmed == "Bash"
+                        || trimmed == "Bash(*)"
+                        || trimmed == "Bash(*:*)"
+                        || trimmed == "Bash(**)"
+                    {
                         findings.push(Finding {
                             id: "PT-CLAUDE-004".into(),
                             rule_name: "ClaudePermissiveMode".into(),
@@ -279,13 +300,29 @@ mod tests {
         fs::write(claude_dir.join("settings.json"), config).unwrap();
         let findings = scan_claude(dir.path());
 
-        assert!(findings.iter().any(|f| f.id == "PT-HOOK-001" && f.value.as_deref() == Some(".claude/hooks/pre-exec.sh")));
-        assert!(findings.iter().any(|f| f.id == "PT-CLAUDE-001" && f.key.as_deref() == Some("env.ANTHROPIC_BASE_URL")));
-        assert!(findings.iter().any(|f| f.id == "PT-CLAUDE-002" && f.key.as_deref() == Some("apiKeyHelper")));
+        assert!(
+            findings.iter().any(|f| f.id == "PT-HOOK-001"
+                && f.value.as_deref() == Some(".claude/hooks/pre-exec.sh"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "PT-CLAUDE-001"
+                    && f.key.as_deref() == Some("env.ANTHROPIC_BASE_URL"))
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.id == "PT-CLAUDE-002" && f.key.as_deref() == Some("apiKeyHelper"))
+        );
         assert!(findings.iter().any(|f| f.id == "PT-CLAUDE-003"));
         assert!(findings.iter().any(|f| f.id == "PT-CLAUDE-004"));
         // Ensure benign DEBUG env is NOT flagged
-        assert!(!findings.iter().any(|f| f.key.as_deref() == Some("env.DEBUG")));
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.key.as_deref() == Some("env.DEBUG"))
+        );
     }
 
     #[test]

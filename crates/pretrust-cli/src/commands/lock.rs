@@ -1,5 +1,5 @@
 use crate::cli::LockArgs;
-use crate::ui::{print_lock_drift, GREEN, BOLD, DIM};
+use crate::ui::{BOLD, DIM, GREEN, print_lock_drift};
 
 pub fn execute_lock(args: LockArgs) -> i32 {
     let repo_root = &args.path;
@@ -12,11 +12,7 @@ pub fn execute_lock(args: LockArgs) -> i32 {
         match pretrust_core::verify_lockfile(repo_root) {
             Some(verification) => {
                 print_lock_drift(&verification);
-                if verification.is_clean() {
-                    0
-                } else {
-                    1
-                }
+                if verification.is_clean() { 0 } else { 1 }
             }
             None => {
                 anstream::eprintln!(
