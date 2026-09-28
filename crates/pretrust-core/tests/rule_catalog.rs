@@ -608,9 +608,12 @@ static FIXTURES: &[RuleFixture] = &[
         id: "PT-MCP-005",
         run_scan: scan_ws,
         setup_positive: |p| {
+            let token = format!("ghp_{}", "x".repeat(36));
             fs::write(
                 p.join(".mcp.json"),
-                r#"{"mcpServers":{"secret_srv":{"command":"node","env":{"GITHUB_TOKEN":"ghp_supersecrettoken12345678901234567890"}}}}"#,
+                format!(
+                    r#"{{"mcpServers":{{"secret_srv":{{"command":"node","env":{{"GITHUB_TOKEN":"{token}"}}}}}}}}"#
+                ),
             )
             .unwrap();
         },
