@@ -58,9 +58,26 @@ pub fn has_injection_phrases(s: &str) -> bool {
         .any(|phrase| lower.contains(phrase))
 }
 
+#[inline]
+fn normalize_path(path: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if s.contains('\\') {
+            s.replace('\\', "/")
+        } else {
+            s.into_owned()
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_string_lossy().into_owned()
+    }
+}
+
 pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if let Ok(rel) = target.strip_prefix(repo_root) {
-        let s = rel.to_string_lossy().to_string();
+        let s = normalize_path(rel);
         if !s.is_empty() {
             return s;
         }
@@ -68,7 +85,7 @@ pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if let (Ok(canon_root), Ok(canon_target)) = (repo_root.canonicalize(), target.canonicalize())
         && let Ok(rel) = canon_target.strip_prefix(&canon_root)
     {
-        let s = rel.to_string_lossy().to_string();
+        let s = normalize_path(rel);
         if !s.is_empty() {
             return s;
         }
@@ -76,7 +93,7 @@ pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if let Ok(canon_root) = repo_root.canonicalize()
         && let Ok(rel) = target.strip_prefix(&canon_root)
     {
-        let s = rel.to_string_lossy().to_string();
+        let s = normalize_path(rel);
         if !s.is_empty() {
             return s;
         }
@@ -84,7 +101,7 @@ pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if let Ok(canon_target) = target.canonicalize()
         && let Ok(rel) = canon_target.strip_prefix(repo_root)
     {
-        let s = rel.to_string_lossy().to_string();
+        let s = normalize_path(rel);
         if !s.is_empty() {
             return s;
         }
@@ -92,9 +109,9 @@ pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if target.is_absolute()
         && let Some(file_name) = target.file_name()
     {
-        return file_name.to_string_lossy().to_string();
+        return normalize_path(Path::new(file_name));
     }
-    target.to_string_lossy().to_string()
+    normalize_path(target)
 }
 
 pub fn redact_secret(val: &str) -> String {
@@ -185,4 +202,51 @@ pub fn scan_agent_vectors(repo_root: &Path) -> Vec<Finding> {
     findings.extend(tasks::scan_tasks(repo_root));
     findings.extend(instructions::scan_instructions(repo_root));
     findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_format_rel_path_nested_git_config() {
+        let dir = tempdir().unwrap();
+        let dot_git = dir.path().join(".git");
+        fs::create_dir_all(&dot_git).unwrap();
+        let git_config = dot_git.join("config");
+        fs::write(&git_config, "[core]\nfsmonitor = false\n").unwrap();
+
+        let formatted = format_rel_path(dir.path(), &git_config);
+        assert_eq!(formatted, ".git/config");
+
+        let sub_git = dir.path().join("submodule").join(".git");
+        fs::create_dir_all(&sub_git).unwrap();
+        let sub_config = sub_git.join("config");
+        fs::write(&sub_config, "[core]\n").unwrap();
+
+        let formatted_sub = format_rel_path(dir.path(), &sub_config);
+        assert_eq!(formatted_sub, "submodule/.git/config");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_format_rel_path_preserves_unix_backslash_filename() {
+        let dir = tempdir().unwrap();
+        let strange_file = dir.path().join("strange\\filename.txt");
+        fs::write(&strange_file, "data").unwrap();
+        let formatted = format_rel_path(dir.path(), &strange_file);
+        assert_eq!(formatted, "strange\\filename.txt");
+    }
+
+    #[test]
+    fn test_format_rel_path_absolute_fallback() {
+        let dir1 = tempdir().unwrap();
+        let dir2 = tempdir().unwrap();
+        let external_file = dir2.path().join("external.txt");
+        fs::write(&external_file, "external").unwrap();
+
+        let formatted = format_rel_path(dir1.path(), &external_file);
+        assert_eq!(formatted, "external.txt");
+    }
 }
