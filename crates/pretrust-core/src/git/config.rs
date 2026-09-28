@@ -1,3 +1,4 @@
+use crate::agent::{format_rel_path, make_unreadable_finding};
 use crate::report::model::{Action, Category, Finding, Severity};
 use std::collections::HashSet;
 use std::fs;
@@ -26,21 +27,27 @@ pub enum GitConfigError {
 
 pub fn resolve_git_dirs(repo_root: &Path) -> Option<GitDirs> {
     let dot_git = repo_root.join(".git");
-    if !dot_git.exists() {
+    if fs::symlink_metadata(&dot_git).is_err() {
         return None;
     }
 
-    let (git_dir, common_dir) = if dot_git.is_file() {
+    let (git_dir, common_dir) = if !dot_git.is_dir() {
         let content = fs::read_to_string(&dot_git).ok()?;
         let gitdir_line = content
             .lines()
             .find(|l| l.trim_start().starts_with("gitdir:"))?;
         let rel_path = gitdir_line.trim_start().strip_prefix("gitdir:")?.trim();
+        if rel_path.is_empty() {
+            return None;
+        }
         let resolved_git_dir = if Path::new(rel_path).is_absolute() {
             PathBuf::from(rel_path)
         } else {
             repo_root.join(rel_path)
         };
+        if fs::symlink_metadata(&resolved_git_dir).is_err() {
+            return None;
+        }
         let canonical_git_dir = resolved_git_dir.canonicalize().unwrap_or(resolved_git_dir);
 
         let commondir_file = canonical_git_dir.join("commondir");
@@ -57,18 +64,23 @@ pub fn resolve_git_dirs(repo_root: &Path) -> Option<GitDirs> {
         };
         (canonical_git_dir, common)
     } else {
+        if let Err(e) = fs::read_dir(&dot_git)
+            && e.kind() == std::io::ErrorKind::PermissionDenied
+        {
+            return None;
+        }
         let canonical_dot_git = dot_git.canonicalize().unwrap_or(dot_git);
         (canonical_dot_git.clone(), canonical_dot_git)
     };
 
     let mut config_paths = Vec::new();
     let main_config = common_dir.join("config");
-    if main_config.is_file() {
+    if fs::symlink_metadata(&main_config).is_ok() {
         config_paths.push(main_config);
     }
 
     let worktree_config = git_dir.join("config.worktree");
-    if worktree_config.is_file() {
+    if fs::symlink_metadata(&worktree_config).is_ok() {
         config_paths.push(worktree_config);
     }
 
@@ -81,6 +93,16 @@ pub fn resolve_git_dirs(repo_root: &Path) -> Option<GitDirs> {
 
 pub fn scan_git_config(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
+    let dot_git = repo_root.join(".git");
+
+    if fs::symlink_metadata(&dot_git).is_ok() {
+        let git_dirs = resolve_git_dirs(repo_root);
+        if git_dirs.is_none() {
+            findings.push(make_unreadable_finding(repo_root, &dot_git));
+            return findings;
+        }
+    }
+
     let git_dirs = match resolve_git_dirs(repo_root) {
         Some(d) => d,
         None => return findings,
@@ -165,7 +187,10 @@ fn scan_config_file_recursive(
 
     let raw_bytes = match fs::read(config_path) {
         Ok(b) => b,
-        Err(_) => return,
+        Err(_) => {
+            findings.push(make_unreadable_finding(repo_root, config_path));
+            return;
+        }
     };
     let content_str = String::from_utf8_lossy(&raw_bytes).to_string();
 
@@ -177,6 +202,7 @@ fn scan_config_file_recursive(
         Ok(f) => f,
         Err(_) => {
             scan_raw_config_lines(repo_root, config_path, &content_str, findings);
+            findings.push(make_unreadable_finding(repo_root, config_path));
             return;
         }
     };
@@ -282,10 +308,14 @@ fn handle_include(
         });
     }
 
-    if let Some(valid_target) = target_canonical
-        && valid_target.is_file()
+    if let Some(valid_target) = target_canonical {
+        if valid_target.is_file() {
+            scan_config_file_recursive(repo_root, &valid_target, depth + 1, visited, findings);
+        }
+    } else if (!is_external || target_path.starts_with(repo_root))
+        && fs::symlink_metadata(&target_path).is_ok()
     {
-        scan_config_file_recursive(repo_root, &valid_target, depth + 1, visited, findings);
+        scan_config_file_recursive(repo_root, &target_path, depth + 1, visited, findings);
     }
 }
 
@@ -541,14 +571,6 @@ fn scan_raw_config_lines(
     }
 }
 
-fn format_rel_path(repo_root: &Path, target: &Path) -> String {
-    if let Ok(rel) = target.strip_prefix(repo_root) {
-        rel.to_string_lossy().to_string()
-    } else {
-        target.to_string_lossy().to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,5 +708,59 @@ mod tests {
 
         let findings = scan_git_config(&repo);
         assert!(findings.iter().any(|f| f.rule_name == "GitFsMonitor"));
+    }
+
+    #[test]
+    fn malformed_config_keeps_raw_sink_and_blocks_for_incomplete_coverage() {
+        let dir = tempdir().unwrap();
+        let dot_git = dir.path().join(".git");
+        fs::create_dir_all(&dot_git).unwrap();
+        fs::write(
+            dot_git.join("config"),
+            "[core]\nfsmonitor = hostile\n[broken\n",
+        )
+        .unwrap();
+
+        let findings = scan_git_config(dir.path());
+        assert!(findings.iter().any(|f| f.rule_name == "GitFsMonitor"));
+        assert!(findings.iter().any(|f| f.id == "PT-GIT-001"));
+        let coverage = findings.iter().find(|f| f.id == "PT-CFG-001").unwrap();
+        assert!(coverage.is_blocking_for_run());
+        assert_eq!(coverage.file_path, ".git/config");
+        assert!(!coverage.message.contains(dir.path().to_str().unwrap()));
+        assert!(!coverage.message.contains("hostile"));
+    }
+
+    #[test]
+    fn valid_and_missing_git_config_do_not_emit_coverage_finding() {
+        let missing = tempdir().unwrap();
+        assert!(
+            scan_git_config(missing.path())
+                .iter()
+                .all(|f| f.id != "PT-CFG-001")
+        );
+
+        let dir = tempdir().unwrap();
+        let dot_git = dir.path().join(".git");
+        fs::create_dir_all(&dot_git).unwrap();
+        fs::write(dot_git.join("config"), "[core]\nfsmonitor = false\n").unwrap();
+        assert!(
+            scan_git_config(dir.path())
+                .iter()
+                .all(|f| f.id != "PT-CFG-001")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn broken_git_config_symlink_is_reported_as_present_unreadable_file() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let dot_git = dir.path().join(".git");
+        fs::create_dir_all(&dot_git).unwrap();
+        symlink("missing-config", dot_git.join("config")).unwrap();
+        let findings = scan_git_config(dir.path());
+        assert!(findings.iter().any(|f| f.id == "PT-CFG-001"));
     }
 }

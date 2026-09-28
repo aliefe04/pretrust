@@ -839,7 +839,7 @@ static FIXTURES: &[RuleFixture] = &[
             .unwrap();
         },
     },
-    // PT-CFG-001: AgentConfigUnreadable
+    // PT-CFG-001: SecurityConfigUnreadable
     RuleFixture {
         id: "PT-CFG-001",
         run_scan: scan_ws,

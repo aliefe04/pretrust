@@ -13,7 +13,12 @@ pub fn scan_vscode(repo_root: &Path) -> Vec<Finding> {
         } else {
             match read_file_lossy(&settings_path) {
                 Ok(content) => {
-                    scan_vscode_settings_content(repo_root, &settings_path, &content, &mut findings);
+                    scan_vscode_settings_content(
+                        repo_root,
+                        &settings_path,
+                        &content,
+                        &mut findings,
+                    );
                 }
                 Err(_) => {
                     findings.push(make_unreadable_finding(repo_root, &settings_path));

@@ -38,7 +38,7 @@ All JSON settings files are parsed as JSONC, so comments and trailing commas can
 | PT-CURSOR-001 | high | `.cursor/cli.json` pre-approves `Shell(…)` or `Write(…)` | [CVE-2025-61592](https://nvd.nist.gov/vuln/detail/CVE-2025-61592) |
 | PT-VSCODE-001 | high | `chat.tools.autoApprove` enabled in the workspace | [VS Code MCP configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration) |
 | PT-VSCODE-002 | high | `task.allowAutomaticTasks: "on"` | [VS Code tasks](https://code.visualstudio.com/docs/editor/tasks) |
-| PT-CFG-001 | high | Unreadable or malformed agent configuration file | |
+| PT-CFG-001 | high | Unreadable or malformed agent, Git metadata, or Git attributes configuration; scanner cannot prove complete security coverage | |
 
 ## Exit codes
 

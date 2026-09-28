@@ -1,3 +1,4 @@
+use crate::agent::{format_rel_path, make_unreadable_finding};
 use crate::git::config::resolve_git_dirs;
 use crate::report::model::{Action, Category, Finding, Severity};
 use std::collections::HashSet;
@@ -11,12 +12,88 @@ pub struct BoundDrivers {
     pub merges: HashSet<String>,
 }
 
-pub fn parse_attributes_file(path: &Path) -> BoundDrivers {
-    let mut drivers = BoundDrivers::default();
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return drivers,
+pub fn collect_repo_attributes(repo_root: &Path) -> (BoundDrivers, Vec<PathBuf>) {
+    collect_repo_attributes_with_findings(repo_root, &mut Vec::new())
+}
+
+fn collect_repo_attributes_with_findings(
+    repo_root: &Path,
+    findings: &mut Vec<Finding>,
+) -> (BoundDrivers, Vec<PathBuf>) {
+    let mut combined = BoundDrivers::default();
+    let mut attribute_files = Vec::new();
+    let mut inspected = HashSet::new();
+
+    let root_attr = repo_root.join(".gitattributes");
+    collect_attribute_file(
+        repo_root,
+        &root_attr,
+        &mut inspected,
+        &mut combined,
+        &mut attribute_files,
+        findings,
+    );
+
+    if let Some(git_dirs) = resolve_git_dirs(repo_root) {
+        let info_attr = git_dirs.git_dir.join("info").join("attributes");
+        collect_attribute_file(
+            repo_root,
+            &info_attr,
+            &mut inspected,
+            &mut combined,
+            &mut attribute_files,
+            findings,
+        );
+    }
+
+    (combined, attribute_files)
+}
+
+fn collect_attribute_file(
+    repo_root: &Path,
+    path: &Path,
+    inspected: &mut HashSet<PathBuf>,
+    combined: &mut BoundDrivers,
+    attribute_files: &mut Vec<PathBuf>,
+    findings: &mut Vec<Finding>,
+) {
+    if fs::symlink_metadata(path).is_err() {
+        return;
+    }
+    let identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if !inspected.insert(identity) {
+        return;
+    }
+    let content = match fs::read(path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(content) => content,
+            Err(_) => {
+                findings.push(make_unreadable_finding(repo_root, path));
+                return;
+            }
+        },
+        Err(_) => {
+            findings.push(make_unreadable_finding(repo_root, path));
+            return;
+        }
     };
+    let d = parse_attributes_content(&content);
+    combined.filters.extend(d.filters);
+    combined.diffs.extend(d.diffs);
+    combined.merges.extend(d.merges);
+    attribute_files.push(path.to_path_buf());
+}
+
+pub fn parse_attributes_file(path: &Path) -> BoundDrivers {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return BoundDrivers::default(),
+    };
+    parse_attributes_content(&content)
+}
+
+fn parse_attributes_content(content: &str) -> BoundDrivers {
+    let mut drivers = BoundDrivers::default();
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -29,7 +106,6 @@ pub fn parse_attributes_file(path: &Path) -> BoundDrivers {
             continue;
         }
 
-        // parts[0] is pattern, remaining parts are attributes
         for attr in &parts[1..] {
             if let Some((k, v)) = attr.split_once('=') {
                 match k.to_ascii_lowercase().as_str() {
@@ -51,35 +127,6 @@ pub fn parse_attributes_file(path: &Path) -> BoundDrivers {
     drivers
 }
 
-pub fn collect_repo_attributes(repo_root: &Path) -> (BoundDrivers, Vec<PathBuf>) {
-    let mut combined = BoundDrivers::default();
-    let mut attribute_files = Vec::new();
-
-    // 1. Root .gitattributes
-    let root_attr = repo_root.join(".gitattributes");
-    if root_attr.is_file() {
-        let d = parse_attributes_file(&root_attr);
-        combined.filters.extend(d.filters);
-        combined.diffs.extend(d.diffs);
-        combined.merges.extend(d.merges);
-        attribute_files.push(root_attr);
-    }
-
-    // 2. .git/info/attributes
-    if let Some(git_dirs) = resolve_git_dirs(repo_root) {
-        let info_attr = git_dirs.git_dir.join("info").join("attributes");
-        if info_attr.is_file() {
-            let d = parse_attributes_file(&info_attr);
-            combined.filters.extend(d.filters);
-            combined.diffs.extend(d.diffs);
-            combined.merges.extend(d.merges);
-            attribute_files.push(info_attr);
-        }
-    }
-
-    (combined, attribute_files)
-}
-
 #[derive(Debug, Clone)]
 pub struct DefinedDriver {
     pub kind: DriverKind,
@@ -98,6 +145,13 @@ pub enum DriverKind {
 }
 
 pub fn extract_defined_drivers(repo_root: &Path) -> Vec<DefinedDriver> {
+    extract_defined_drivers_with_findings(repo_root, &mut Vec::new())
+}
+
+fn extract_defined_drivers_with_findings(
+    repo_root: &Path,
+    findings: &mut Vec<Finding>,
+) -> Vec<DefinedDriver> {
     let mut defined = Vec::new();
     let git_dirs = match resolve_git_dirs(repo_root) {
         Some(d) => d,
@@ -107,7 +161,10 @@ pub fn extract_defined_drivers(repo_root: &Path) -> Vec<DefinedDriver> {
     for config_path in &git_dirs.config_paths {
         let raw = match fs::read_to_string(config_path) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(_) => {
+                findings.push(make_unreadable_finding(repo_root, config_path));
+                continue;
+            }
         };
 
         let mut current_section = String::new();
@@ -171,8 +228,8 @@ fn is_allowlisted_driver(name: &str, cmd: &str) -> bool {
 
 pub fn scan_attributes_and_drivers(repo_root: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
-    let (bound, _attr_files) = collect_repo_attributes(repo_root);
-    let defined = extract_defined_drivers(repo_root);
+    let (bound, _attr_files) = collect_repo_attributes_with_findings(repo_root, &mut findings);
+    let defined = extract_defined_drivers_with_findings(repo_root, &mut findings);
 
     for driver in defined {
         if is_allowlisted_driver(&driver.name, &driver.command) {
@@ -194,11 +251,7 @@ pub fn scan_attributes_and_drivers(repo_root: &Path) -> Vec<Finding> {
             }
         };
 
-        let rel_file = if let Ok(rel) = driver.config_file.strip_prefix(repo_root) {
-            rel.to_string_lossy().to_string()
-        } else {
-            driver.config_file.to_string_lossy().to_string()
-        };
+        let rel_file = format_rel_path(repo_root, &driver.config_file);
 
         if is_bound {
             findings.push(Finding {

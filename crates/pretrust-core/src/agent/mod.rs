@@ -60,10 +60,41 @@ pub fn has_injection_phrases(s: &str) -> bool {
 
 pub fn format_rel_path(repo_root: &Path, target: &Path) -> String {
     if let Ok(rel) = target.strip_prefix(repo_root) {
-        rel.to_string_lossy().to_string()
-    } else {
-        target.to_string_lossy().to_string()
+        let s = rel.to_string_lossy().to_string();
+        if !s.is_empty() {
+            return s;
+        }
     }
+    if let (Ok(canon_root), Ok(canon_target)) = (repo_root.canonicalize(), target.canonicalize())
+        && let Ok(rel) = canon_target.strip_prefix(&canon_root)
+    {
+        let s = rel.to_string_lossy().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    if let Ok(canon_root) = repo_root.canonicalize()
+        && let Ok(rel) = target.strip_prefix(&canon_root)
+    {
+        let s = rel.to_string_lossy().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    if let Ok(canon_target) = target.canonicalize()
+        && let Ok(rel) = canon_target.strip_prefix(repo_root)
+    {
+        let s = rel.to_string_lossy().to_string();
+        if !s.is_empty() {
+            return s;
+        }
+    }
+    if target.is_absolute()
+        && let Some(file_name) = target.file_name()
+    {
+        return file_name.to_string_lossy().to_string();
+    }
+    target.to_string_lossy().to_string()
 }
 
 pub fn redact_secret(val: &str) -> String {
@@ -88,16 +119,16 @@ pub fn make_unreadable_finding(repo_root: &Path, path: &Path) -> Finding {
     let rel_file = format_rel_path(repo_root, path);
     Finding {
         id: "PT-CFG-001".into(),
-        rule_name: "AgentConfigUnreadable".into(),
+        rule_name: "SecurityConfigUnreadable".into(),
         severity: Severity::High,
         category: Category::ConfigurationSmuggling,
-        message: format!("Agent configuration file cannot be safely read or parsed: '{rel_file}'"),
+        message: format!("Configuration file cannot be safely read or parsed: '{rel_file}'"),
         file_path: rel_file,
         line: None,
         key: None,
         value: None,
         action: Action::RequiresManualRemediation,
-        remediation: "Verify and repair the agent configuration file or remove it if untrusted.".into(),
+        remediation: "Verify and repair the configuration file or remove it if untrusted.".into(),
     }
 }
 

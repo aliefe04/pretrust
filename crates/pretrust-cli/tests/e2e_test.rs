@@ -441,7 +441,7 @@ fn test_9_vscode_tasks_bom_and_lossy_utf8_detection() {
     let (code_bom, report_bom) = scan_json(&bin, dir_bom.path());
     assert_eq!(code_bom, Some(1));
     let ids_bom = finding_ids(&report_bom);
-    assert!(ids_bom.iter().any(|id| id == "PT-VSCODE-002"));
+    assert!(ids_bom.iter().any(|id| id == "PT-TASK-001"));
 
     // 2. tasks.json with invalid UTF-8 byte in a comment + runOn: folderOpen
     let dir_lossy = tempdir().unwrap();
@@ -455,7 +455,7 @@ fn test_9_vscode_tasks_bom_and_lossy_utf8_detection() {
     let (code_lossy, report_lossy) = scan_json(&bin, dir_lossy.path());
     assert_eq!(code_lossy, Some(1));
     let ids_lossy = finding_ids(&report_lossy);
-    assert!(ids_lossy.iter().any(|id| id == "PT-VSCODE-002"));
+    assert!(ids_lossy.iter().any(|id| id == "PT-TASK-001"));
 }
 
 #[test]
@@ -486,7 +486,7 @@ fn test_10_malformed_json_emits_pt_cfg_001_and_refuses_run_and_hooks() {
 
     // 3. Claude hook exits 2 for obfuscated command `g""it status`
     let mut claude_obf = hermetic_cmd(&bin)
-        .args(["hook", "--harness", "claude"])
+        .args(["hook", "claude"])
         .current_dir(dir.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -506,7 +506,7 @@ fn test_10_malformed_json_emits_pt_cfg_001_and_refuses_run_and_hooks() {
 
     // 4. Claude hook exits 2 for invalid JSON payload on stdin
     let mut claude_invalid = hermetic_cmd(&bin)
-        .args(["hook", "--harness", "claude"])
+        .args(["hook", "claude"])
         .current_dir(dir.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -537,7 +537,7 @@ fn init_test_git_repo(dir: &Path) {
         .status()
         .unwrap();
     hermetic_cmd("git")
-        .args(["config", "user.email", "test@pretrust.dev"])
+        .args(["config", "user.email", "test@example.invalid"])
         .current_dir(dir)
         .status()
         .unwrap();
@@ -1052,4 +1052,38 @@ fn test_16_filter_process_isolation_proof() {
         !marker_file.exists(),
         "SECURITY VIOLATION: Hostile filter process script executed inside 'pretrust run'!"
     );
+}
+
+#[test]
+fn malformed_git_config_reports_sink_and_refuses_run_before_marker() {
+    let bin = get_pretrust_bin();
+    let dir = tempdir().unwrap();
+    let git_dir = dir.path().join(".git");
+    fs::create_dir_all(&git_dir).unwrap();
+    fs::write(
+        git_dir.join("config"),
+        "[core]\nfsmonitor = hostile\n[broken\n",
+    )
+    .unwrap();
+    let marker = dir.path().join("marker");
+
+    let (code, report) = scan_json(&bin, dir.path());
+    assert_eq!(code, Some(1));
+    let findings = report["findings"].as_array().unwrap();
+    assert!(findings.iter().any(|f| f["id"] == "PT-CFG-001"));
+    assert!(findings.iter().any(|f| f["id"] == "PT-GIT-001"));
+
+    let output = hermetic_cmd(&bin)
+        .args([
+            "run",
+            "--",
+            "sh",
+            "-c",
+            &format!("touch {}", marker.display()),
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("pretrust run failed");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!marker.exists());
 }
