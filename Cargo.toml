@@ -7,7 +7,7 @@ version = "0.1.0"
 authors = ["Ali Efe Çakıcı <efe@aecapi.com>"]
 edition = "2024"
 rust-version = "1.85"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/aliefe04/pretrust"
 homepage = "https://github.com/aliefe04/pretrust"
 
