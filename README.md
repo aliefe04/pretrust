@@ -11,7 +11,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" /></a>
 </p>
 
-[![Pretrust scanning a hostile repository](docs/assets/screenshot.png)](docs/RULES.md)
+[![Pretrust scanning a hostile repository](docs/assets/screenshot.svg)](docs/RULES.md)
 
 ---
 
