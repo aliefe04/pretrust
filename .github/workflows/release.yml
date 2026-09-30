@@ -29,17 +29,17 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          VERSION=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "pretrust-cli") | .version')
+          VERSION=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "pretrust") | .version')
           if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-            echo "::error::Could not determine pretrust-cli version from cargo metadata"
+            echo "::error::Could not determine pretrust version from cargo metadata"
             exit 1
           fi
           EXPECTED_TAG="v${VERSION}"
           if [ "$TAG" != "$EXPECTED_TAG" ]; then
-            echo "::error::Push tag '$TAG' does not match expected tag '$EXPECTED_TAG' from pretrust-cli package version '$VERSION'"
+            echo "::error::Push tag '$TAG' does not match expected tag '$EXPECTED_TAG' from pretrust package version '$VERSION'"
             exit 1
           fi
-          echo "Preflight validation succeeded: push tag '$TAG' matches pretrust-cli version '$VERSION'"
+          echo "Preflight validation succeeded: push tag '$TAG' matches pretrust version '$VERSION'"
 
   build:
     name: Build (${{ matrix.target }})

@@ -150,7 +150,7 @@ if [ "$download_ok" -eq 0 ]; then
     cargo_root="$TMP_DIR/cargo-root"
     mkdir -p "$cargo_root"
     # Positional arguments rather than an expanded string: paths may contain spaces.
-    set -- install --git "https://github.com/${REPO}" pretrust-cli --bin pretrust \
+    set -- install --git "https://github.com/${REPO}" pretrust --bin pretrust \
         --locked --root "$cargo_root" --tag "$build_tag"
     cargo "$@"
     mkdir -p "$install_dir"

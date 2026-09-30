@@ -1,5 +1,5 @@
 [workspace]
-members = ["cargo:pretrust-cli"]
+members = ["cargo:pretrust"]
 
 # Config for 'cargo dist'
 [dist]

@@ -1,5 +1,5 @@
 [package]
-name = "pretrust-cli"
+name = "pretrust"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -14,7 +14,7 @@ name = "pretrust"
 path = "src/main.rs"
 
 [dependencies]
-pretrust-core = { version = "0.1.1", path = "../pretrust-core" }
+pretrust-core = { version = "0.1.2", path = "../pretrust-core" }
 clap = { workspace = true }
 serde_json = { workspace = true }
 anstream = { workspace = true }

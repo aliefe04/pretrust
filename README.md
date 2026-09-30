@@ -30,8 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/main/install.sh |
 That URL tracks `main`, which is mutable. Pin both the installer and the version it installs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.1/install.sh \
-  | PRETRUST_VERSION=v0.1.1 sh
+curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.2/install.sh \
+  | PRETRUST_VERSION=v0.1.2 sh
 ```
 
 Fetching `install.sh` from a tag only pins the script; without `PRETRUST_VERSION` it still installs
@@ -57,7 +57,7 @@ Releases are built for Linux (x86_64, aarch64), macOS (x86_64, aarch64) and Wind
 binaries are built against Ubuntu 22.04's glibc 2.35; on older distributions, build from source:
 
 ```bash
-cargo install --git https://github.com/aliefe04/pretrust pretrust-cli --bin pretrust
+cargo install --git https://github.com/aliefe04/pretrust pretrust --bin pretrust
 
 # or from a clone
 git clone https://github.com/aliefe04/pretrust && cd pretrust
