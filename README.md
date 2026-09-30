@@ -21,7 +21,40 @@ Pretrust is a single Rust binary with no runtime dependencies. It checks a repos
 
 ### Installation
 
-Pretrust is not published to a package registry yet. Build it with Rust 1.88 or newer:
+**macOS and Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/main/install.sh | sh
+```
+
+That URL tracks `main`, which is mutable. Pin both the installer and the version it installs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.0/install.sh \
+  | PRETRUST_VERSION=v0.1.0 sh
+```
+
+Fetching `install.sh` from a tag only pins the script; without `PRETRUST_VERSION` it still installs
+the newest release.
+
+The installer downloads the binary for your platform and its published `.sha256` sidecar, compares
+them, and aborts if they differ or the sidecar is missing. That is an **integrity** check: it catches
+corruption, truncated uploads and mismatched assets. It is not a signature — both files come from the
+same release, so it cannot defend against someone able to replace the release itself. Releases are
+currently unsigned; verify the commit SHA out of band if you need more than integrity.
+
+If the download is unavailable the installer falls back to `cargo install`, pinned to the requested
+tag with `--locked`; for `latest` it resolves the actual release tag first and refuses rather than
+building an unpinned default branch. Set `PRETRUST_NO_CARGO_FALLBACK=1` to disable the fallback
+entirely. Other overrides: `PRETRUST_INSTALL_DIR` (default `/usr/local/bin`, else `~/.local/bin`),
+`PRETRUST_VERBOSE=1`.
+
+**Windows (x86_64):** download `pretrust-x86_64-pc-windows-msvc.zip` and its `.sha256` sidecar from
+the [releases page](https://github.com/aliefe04/pretrust/releases), compare the checksums, and extract
+`pretrust.exe`.
+
+Releases are built for Linux (x86_64, aarch64), macOS (x86_64, aarch64) and Windows (x86_64). Linux
+binaries are built against Ubuntu 22.04's glibc 2.35; on older distributions, build from source:
 
 ```bash
 cargo install --git https://github.com/aliefe04/pretrust pretrust-cli --bin pretrust
@@ -50,7 +83,10 @@ pretrust run -- claude
 pretrust run -- cursor .
 ```
 
-**Hook** it into an agent so tool calls are checked. Put this in your user-level `~/.claude/settings.json`; project-level hooks are exactly what rule PT-HOOK-001 flags:
+**Hook** it into an agent so tool calls are gated. The hook re-scans the repository you are working in
+and blocks every tool call while that repository has blocking findings; it does not inspect the
+individual command. Put this in your user-level `~/.claude/settings.json`; project-level hooks are
+exactly what rule PT-HOOK-001 flags:
 
 ```json
 {
@@ -131,6 +167,7 @@ Git config execution sinks, VS Code tasks, Cargo hooks, agent instruction files,
 
 - `pretrust scan` and `pretrust lock` are checks. Nothing protects an agent that you launch without `pretrust run` or `pretrust hook`.
 - `pretrust run` neutralizes Git execution sinks. MCP, hook and permission findings are reported and block the launch; they are not rewritten.
+- `pretrust hook` decides on repository state, not on the command being run. A harmless command is blocked while the repository has blocking findings, and a dangerous one is not singled out.
 - Rules cover known configuration files. A new agent or file format is not covered until a rule exists for it.
 
 ### Contributing

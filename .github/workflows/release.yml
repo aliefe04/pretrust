@@ -6,32 +6,237 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  dist:
-    name: Build distribution artifacts
+  preflight:
+    name: Preflight validation
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - name: Validate release tag
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "pretrust-cli") | .version')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::Could not determine pretrust-cli version from cargo metadata"
+            exit 1
+          fi
+          EXPECTED_TAG="v${VERSION}"
+          if [ "$TAG" != "$EXPECTED_TAG" ]; then
+            echo "::error::Push tag '$TAG' does not match expected tag '$EXPECTED_TAG' from pretrust-cli package version '$VERSION'"
+            exit 1
+          fi
+          echo "Preflight validation succeeded: push tag '$TAG' matches pretrust-cli version '$VERSION'"
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: preflight
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-          - os: macos-latest
-            target: x86_64-apple-darwin
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: aarch64-apple-darwin
+            os: macos-15
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-dist
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary (Unix)
+        if: runner.os != 'Windows'
         shell: bash
-        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/latest/download/cargo-dist-installer.sh | sh
-      - name: Build release packages
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --release --locked --target "$TARGET" --bin pretrust
+
+      - name: Build release binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --release --locked --target $env:TARGET --bin pretrust
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package and smoke test (Unix)
+        if: runner.os != 'Windows'
         shell: bash
-        run: cargo dist build --tag ${{ github.ref_name }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ARCHIVE_NAME="pretrust-${TARGET}.tar.gz"
+          tar -czf "$ARCHIVE_NAME" -C "target/${TARGET}/release" pretrust
+
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          else
+            sha256sum "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256"
+          fi
+
+          # Smoke executable inside archive before upload
+          SMOKE_DIR=$(mktemp -d)
+          tar -xzf "$ARCHIVE_NAME" -C "$SMOKE_DIR"
+          "$SMOKE_DIR/pretrust" --version
+          rm -rf "$SMOKE_DIR"
+
+      - name: Package and smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $target = $env:TARGET
+          $archiveName = "pretrust-$target.zip"
+          $binaryPath = "target/$target/release/pretrust.exe"
+
+          # Stage single executable to ensure root placement in archive
+          $stageDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString()))
+          Copy-Item $binaryPath -Destination (Join-Path $stageDir "pretrust.exe")
+          Compress-Archive -Path (Join-Path $stageDir "pretrust.exe") -DestinationPath $archiveName -Force
+          Remove-Item -Recurse -Force $stageDir
+
+          # Checksum each archive in GNU sha256sum-compatible format (lowercase hex, two spaces, LF)
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $archiveName).Hash.ToLower()
+          [System.IO.File]::WriteAllText("$archiveName.sha256", "$hash  $archiveName`n", [System.Text.Encoding]::ASCII)
+
+          # Smoke executable inside archive before upload
+          $smokeDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString()))
+          Expand-Archive -Path $archiveName -DestinationPath $smokeDir -Force
+          $smokeExe = Join-Path $smokeDir "pretrust.exe"
+          & $smokeExe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -Recurse -Force $smokeDir
+
+      - name: Upload matrix artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pretrust-${{ matrix.target }}
+          path: |
+            pretrust-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [preflight, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          pattern: pretrust-*
+          merge-multiple: true
+
+      - name: Verify release assets and publish
+        shell: bash
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          EXPECTED_ASSETS=(
+            "pretrust-x86_64-unknown-linux-gnu.tar.gz"
+            "pretrust-x86_64-unknown-linux-gnu.tar.gz.sha256"
+            "pretrust-aarch64-unknown-linux-gnu.tar.gz"
+            "pretrust-aarch64-unknown-linux-gnu.tar.gz.sha256"
+            "pretrust-x86_64-apple-darwin.tar.gz"
+            "pretrust-x86_64-apple-darwin.tar.gz.sha256"
+            "pretrust-aarch64-apple-darwin.tar.gz"
+            "pretrust-aarch64-apple-darwin.tar.gz.sha256"
+            "pretrust-x86_64-pc-windows-msvc.zip"
+            "pretrust-x86_64-pc-windows-msvc.zip.sha256"
+          )
+
+          echo "Listing all downloaded assets:"
+          ls -la
+
+          # Assert exact expected count of files (5 archives + 5 sidecars = 10 files)
+          TOTAL_FILES=$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')
+          if [ "$TOTAL_FILES" -ne 10 ]; then
+            echo "::error::Expected exactly 10 asset files, found $TOTAL_FILES"
+            exit 1
+          fi
+
+          # Assert each expected asset exists
+          for asset in "${EXPECTED_ASSETS[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "::error::Missing expected release asset: $asset"
+              exit 1
+            fi
+          done
+
+          # Each sidecar must name and authenticate its own archive.
+          for archive in *.tar.gz *.zip; do
+            if [ "$(cat "$archive.sha256")" != "$(sha256sum "$archive")" ]; then
+              echo "::error::Checksum does not match $archive"
+              exit 1
+            fi
+          done
+
+          # Verify contents of archives
+          echo "Verifying contents of archives..."
+          for tarball in *.tar.gz; do
+            echo "Verifying contents of $tarball:"
+            if ! tar -tf "$tarball" | grep -qx "pretrust"; then
+              echo "::error::Archive $tarball does not contain pretrust executable"
+              exit 1
+            fi
+          done
+
+          for zipfile in *.zip; do
+            echo "Verifying contents of $zipfile:"
+            if ! zipinfo -1 "$zipfile" | grep -qx "pretrust.exe"; then
+              echo "::error::Archive $zipfile does not contain pretrust.exe"
+              exit 1
+            fi
+          done
+
+          echo "All 5 archives, 5 checksum sidecars, and contents verified successfully."
+
+          # Create GitHub Release with --verify-tag and all 10 assets
+          echo "Publishing release $TAG with all 10 assets..."
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            "${EXPECTED_ASSETS[@]}"
