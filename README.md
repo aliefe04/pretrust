@@ -30,8 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/main/install.sh |
 That URL tracks `main`, which is mutable. Pin both the installer and the version it installs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.0/install.sh \
-  | PRETRUST_VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.1/install.sh \
+  | PRETRUST_VERSION=v0.1.1 sh
 ```
 
 Fetching `install.sh` from a tag only pins the script; without `PRETRUST_VERSION` it still installs
