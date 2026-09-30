@@ -6,3 +6,6 @@ target/
 .env
 .env.*
 pretrust-empty-hooks/
+
+# Local launch drafts, not part of the project
+.drafts/
