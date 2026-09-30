@@ -7,7 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Pure static analysis and environment hardening engine for pretrust"
+description = "Static analysis and environment hardening engine behind pretrust: detects repository configuration that AI coding agents would execute"
+readme = "../../README.md"
+keywords = ["ai", "security", "mcp", "supply-chain", "static-analysis"]
+categories = ["development-tools"]
 
 [dependencies]
 gix-config = { workspace = true }

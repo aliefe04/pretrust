@@ -15,7 +15,7 @@
 
 ---
 
-AI coding agents read configuration straight out of the repository you open: MCP servers, hooks, permissions, environment variables, Git settings. Several agents have executed that configuration before the user accepted a trust prompt (for example [CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536), [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852) and [CVE-2025-64109](https://nvd.nist.gov/vuln/detail/CVE-2025-64109)).
+AI coding agents read configuration straight out of the repository you open: MCP servers, hooks, permissions, environment variables, Git settings. Claude Code executed project content before the user accepted its trust dialog ([CVE-2025-59536](https://nvd.nist.gov/vuln/detail/CVE-2025-59536), [CVE-2026-21852](https://nvd.nist.gov/vuln/detail/CVE-2026-21852)). Cursor has shipped remote code execution and sandbox escape driven by the same class of files ([CVE-2025-64109](https://nvd.nist.gov/vuln/detail/CVE-2025-64109), [CVE-2025-54136](https://nvd.nist.gov/vuln/detail/CVE-2025-54136), [CVE-2026-26268](https://nvd.nist.gov/vuln/detail/CVE-2026-26268)).
 
 Pretrust is a single Rust binary with no runtime dependencies. It checks a repository before an agent touches it, and it can start an agent with Git's execution sinks switched off.
 
