@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source srcset="docs/assets/logo-dark.svg" media="(prefers-color-scheme: dark)">
-    <source srcset="docs/assets/logo-light.svg" media="(prefers-color-scheme: light)">
-    <img src="docs/assets/logo-light.svg" alt="Pretrust logo" width="300">
+    <source srcset="https://raw.githubusercontent.com/aliefe04/pretrust/main/docs/assets/logo-dark.svg" media="(prefers-color-scheme: dark)">
+    <source srcset="https://raw.githubusercontent.com/aliefe04/pretrust/main/docs/assets/logo-light.svg" media="(prefers-color-scheme: light)">
+    <img src="https://raw.githubusercontent.com/aliefe04/pretrust/main/docs/assets/logo-light.svg" alt="Pretrust logo" width="300">
   </picture>
 </p>
 <p align="center">The pre-trust guard for AI coding agents.</p>
@@ -11,7 +11,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" /></a>
 </p>
 
-[![Pretrust scanning a hostile repository](docs/assets/screenshot.png)](docs/RULES.md)
+[![Pretrust scanning a hostile repository](https://raw.githubusercontent.com/aliefe04/pretrust/main/docs/assets/screenshot.png)](https://github.com/aliefe04/pretrust/blob/main/docs/RULES.md)
 
 ---
 
@@ -30,8 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/main/install.sh |
 That URL tracks `main`, which is mutable. Pin both the installer and the version it installs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.2/install.sh \
-  | PRETRUST_VERSION=v0.1.2 sh
+curl -fsSL https://raw.githubusercontent.com/aliefe04/pretrust/v0.1.3/install.sh \
+  | PRETRUST_VERSION=v0.1.3 sh
 ```
 
 Fetching `install.sh` from a tag only pins the script; without `PRETRUST_VERSION` it still installs
@@ -161,7 +161,7 @@ jobs:
 
 ### What it checks
 
-Git config execution sinks, VS Code tasks, Cargo hooks, agent instruction files, and the project-level MCP, hook, permission and environment settings of Claude Code, Cursor, VS Code / Copilot, Gemini CLI, Zed and Amazon Q. See [docs/RULES.md](docs/RULES.md) for every file and rule with its reference.
+Git config execution sinks, VS Code tasks, Cargo hooks, agent instruction files, and the project-level MCP, hook, permission and environment settings of Claude Code, Cursor, VS Code / Copilot, Gemini CLI, Zed and Amazon Q. See [docs/RULES.md](https://github.com/aliefe04/pretrust/blob/main/docs/RULES.md) for every file and rule with its reference.
 
 ### Limits
 
@@ -176,4 +176,4 @@ Bug reports, false positives and new rules are welcome. Run the tests with `carg
 
 ---
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](https://github.com/aliefe04/pretrust/blob/main/LICENSE).
