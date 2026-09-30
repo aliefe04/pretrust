@@ -59,7 +59,18 @@ fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-DOWNLOAD_URL="${BASE_URL}/download/${VERSION}/${ARCHIVE_NAME}"
+release_url() {
+    # GitHub serves a pinned release at /releases/download/<tag>/<asset> but the
+    # newest one at /releases/latest/download/<asset>. They are not
+    # interchangeable, and /releases/download/latest/... is a 404.
+    if [ "$1" = "latest" ]; then
+        printf '%s/latest/download/%s' "$BASE_URL" "$2"
+    else
+        printf '%s/download/%s/%s' "$BASE_URL" "$1" "$2"
+    fi
+}
+
+DOWNLOAD_URL="$(release_url "$VERSION" "$ARCHIVE_NAME")"
 CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
 
 fetch() {
@@ -83,9 +94,9 @@ if [ -z "$install_dir" ]; then
         install_dir="/usr/local/bin"
     else
         install_dir="${HOME}/.local/bin"
-        mkdir -p "$install_dir"
     fi
 fi
+mkdir -p "$install_dir"
 
 download_ok=0
 if fetch "$DOWNLOAD_URL" "$TMP_DIR/$ARCHIVE_NAME"; then
@@ -94,7 +105,7 @@ elif [ "$VERSION" != "latest" ]; then
     # A pinned tag may not have assets yet; fall back to the newest published one.
     echo "Notice: no assets for ${VERSION}, retrying against the latest release..." >&2
     VERSION="latest"
-    DOWNLOAD_URL="${BASE_URL}/download/${VERSION}/${ARCHIVE_NAME}"
+    DOWNLOAD_URL="$(release_url "$VERSION" "$ARCHIVE_NAME")"
     CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
     if fetch "$DOWNLOAD_URL" "$TMP_DIR/$ARCHIVE_NAME"; then
         download_ok=1
@@ -134,11 +145,17 @@ if [ "$download_ok" -eq 0 ]; then
     fi
 
     echo "==> Falling back to building ${build_tag} from source with cargo..." >&2
-    # Positional arguments rather than an expanded string: $HOME may contain spaces.
+    # Build into a scratch root and copy from there. Deriving a cargo root from
+    # install_dir would only work when the caller happened to name it "bin".
+    cargo_root="$TMP_DIR/cargo-root"
+    mkdir -p "$cargo_root"
+    # Positional arguments rather than an expanded string: paths may contain spaces.
     set -- install --git "https://github.com/${REPO}" pretrust-cli --bin pretrust \
-        --locked --root "${HOME}/.local" --tag "$build_tag"
+        --locked --root "$cargo_root" --tag "$build_tag"
     cargo "$@"
-    install_dir="${HOME}/.local/bin"
+    mkdir -p "$install_dir"
+    cp "$cargo_root/bin/pretrust" "$install_dir/pretrust"
+    chmod +x "$install_dir/pretrust"
 else
     # Verification is mandatory: this installer is the first thing a security tool
     # asks people to pipe into a shell, so an unverified download is not installable.

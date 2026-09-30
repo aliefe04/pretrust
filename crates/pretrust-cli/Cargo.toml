@@ -14,7 +14,7 @@ name = "pretrust"
 path = "src/main.rs"
 
 [dependencies]
-pretrust-core = { path = "../pretrust-core" }
+pretrust-core = { version = "0.1.0", path = "../pretrust-core" }
 clap = { workspace = true }
 serde_json = { workspace = true }
 anstream = { workspace = true }
