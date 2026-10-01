@@ -405,9 +405,34 @@ fn is_secret_candidate(key: &str, in_env: bool) -> bool {
     }
 }
 
+/// True when the value is a templated reference rather than a literal credential.
+///
+/// `${VAR}` and `$VAR` are references. So is `<scheme> ${VAR}` — `Bearer ${APIFY_TOKEN}`
+/// is the common shape in MCP headers, and the scheme carries no secret. Only a value
+/// whose non-reference part is empty, or is nothing but an auth scheme, counts as a
+/// reference. `Bearer sk-live-abc123` still fires.
 fn is_ref_interpolation(val: &str) -> bool {
     let trimmed = val.trim();
-    trimmed.starts_with("${") && trimmed.ends_with('}')
+    let is_reference = |s: &str| {
+        let s = s.trim();
+        s.starts_with("${") && s.ends_with('}')
+            || s.starts_with('$') && s.len() > 1 && !s.starts_with("$ ")
+            || s.starts_with("{{") && s.ends_with("}}")
+    };
+
+    if is_reference(trimmed) {
+        return true;
+    }
+
+    // Split on whitespace: a leading auth scheme followed by a reference is not a secret.
+    let mut parts = trimmed.split_whitespace();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(scheme), Some(rest), None) => {
+            matches!(scheme.to_ascii_lowercase().as_str(), "bearer" | "basic" | "token")
+                && is_reference(rest)
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -503,5 +528,42 @@ mod tests {
 
         let findings = scan_mcp(dir.path());
         assert_eq!(findings.len(), 0);
+    }
+
+    #[test]
+    fn test_ref_interpolation_shapes() {
+        // A bare reference, in either syntax.
+        assert!(is_ref_interpolation("${APIFY_TOKEN}"));
+        assert!(is_ref_interpolation("$APIFY_TOKEN"));
+        assert!(is_ref_interpolation("{{secrets.TOKEN}}"));
+
+        // Auth scheme followed by a reference: the scheme is literal, the credential is
+        // not. This is the shape that shipped as a false positive.
+        assert!(is_ref_interpolation("Bearer ${APIFY_TOKEN}"));
+        assert!(is_ref_interpolation("Basic $USER_PASS"));
+
+        // A literal credential still fires, with or without a scheme.
+        assert!(!is_ref_interpolation("Bearer sk-live-abc123"));
+        assert!(!is_ref_interpolation("sk-proj-secret123456789"));
+        assert!(!is_ref_interpolation("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"));
+        // Bare scheme with nothing after it is not a credential.
+        assert!(!is_ref_interpolation("Bearer"));
+    }
+
+    #[test]
+    fn test_scheme_prefixed_reference_is_not_a_secret() {
+        let dir = tempdir().unwrap();
+        let mcp_json = r#"{
+            "mcpServers": {
+                "dev": {
+                    "url": "http://localhost:3001",
+                    "headers": {
+                        "Authorization": "Bearer ${APIFY_TOKEN}"
+                    }
+                }
+            }
+        }"#;
+        fs::write(dir.path().join(".mcp.json"), mcp_json).unwrap();
+        assert_eq!(scan_mcp(dir.path()).len(), 0);
     }
 }
