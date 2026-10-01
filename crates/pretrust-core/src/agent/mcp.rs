@@ -413,11 +413,18 @@ fn is_secret_candidate(key: &str, in_env: bool) -> bool {
 /// reference. `Bearer sk-live-abc123` still fires.
 fn is_ref_interpolation(val: &str) -> bool {
     let trimmed = val.trim();
+    // Only the braced form counts. A bare `$VAR` is ambiguous — `$2b$10$...` is a
+    // bcrypt hash and `$sk-live-...` is a literal — and in a security rule the
+    // safe answer to ambiguity is to report, not to skip.
     let is_reference = |s: &str| {
         let s = s.trim();
-        s.starts_with("${") && s.ends_with('}')
-            || s.starts_with('$') && s.len() > 1 && !s.starts_with("$ ")
-            || s.starts_with("{{") && s.ends_with("}}")
+        if s.starts_with("{{") && s.ends_with("}}") {
+            return true;
+        }
+        s.starts_with("${") && s.ends_with('}') && {
+            let inner = &s[2..s.len() - 1];
+            !inner.is_empty() && !inner.contains(['$', '{', '}', ' '])
+        }
     };
 
     if is_reference(trimmed) {
@@ -532,20 +539,27 @@ mod tests {
 
     #[test]
     fn test_ref_interpolation_shapes() {
-        // A bare reference, in either syntax.
+        // Braced references, in the forms MCP configs actually use.
         assert!(is_ref_interpolation("${APIFY_TOKEN}"));
-        assert!(is_ref_interpolation("$APIFY_TOKEN"));
+        assert!(is_ref_interpolation("${env:APIFY_TOKEN}"));
+        assert!(is_ref_interpolation("${input:token}"));
         assert!(is_ref_interpolation("{{secrets.TOKEN}}"));
 
         // Auth scheme followed by a reference: the scheme is literal, the credential is
         // not. This is the shape that shipped as a false positive.
         assert!(is_ref_interpolation("Bearer ${APIFY_TOKEN}"));
-        assert!(is_ref_interpolation("Basic $USER_PASS"));
 
         // A literal credential still fires, with or without a scheme.
         assert!(!is_ref_interpolation("Bearer sk-live-abc123"));
         assert!(!is_ref_interpolation("sk-proj-secret123456789"));
         assert!(!is_ref_interpolation("ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123"));
+        // Dollar-prefixed literals are credentials, not references. A bcrypt hash is
+        // the case that matters — a loose `$`-prefix check skipped it silently.
+        assert!(!is_ref_interpolation("$2b$10$abcdefghijklmnopqrstuv"));
+        assert!(!is_ref_interpolation("$sk-live-abc123"));
+        assert!(!is_ref_interpolation("$APIFY_TOKEN"));
+        // A reference glued to a literal is still a literal.
+        assert!(!is_ref_interpolation("${A}sk-live-xyz"));
         // Bare scheme with nothing after it is not a credential.
         assert!(!is_ref_interpolation("Bearer"));
     }
